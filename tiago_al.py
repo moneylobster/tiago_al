@@ -18,6 +18,7 @@ class Tiago():
     def __init__(self):
         self.head=TiagoHead()
         self.arm=RetimingTiagoArm("time_optimal_trajectory_generation")
+        self.gripper=TiagoGripper()
         
         self.tfbuffer = tf2_ros.Buffer()
         self.tflistener = tf2_ros.TransformListener(self.tfbuffer)
@@ -94,7 +95,36 @@ class RetimingTiagoArm(TiagoArm):
                                                        algorithm=self.retiming_algorithm)
         return retimed_plan
 
-        
+
+class TiagoGripper():
+    def __init__(self):
+        pass
+    def grasp(self):
+        '''
+        call a grasp.
+        '''
+        rospy.wait_for_service('/parallel_gripper_controller/grasp')
+        try:
+            grasp_service = rospy.ServiceProxy('/parallel_gripper_controller/grasp', Empty)
+            response = grasp_service()
+            rospy.loginfo("Grasp service call successful")
+            return True
+        except rospy.ServiceException as e:
+            rospy.loginfo(f"Grasp service call failed: {e}")
+            return False
+    def release(self):
+        '''
+        call a release.
+        '''
+        rospy.wait_for_service('/parallel_gripper_controller/release')
+        try:
+            release_service = rospy.ServiceProxy('/parallel_gripper_controller/release', Empty)
+            response = release_service()
+            rospy.loginfo("Release service call successful")
+            return True
+        except rospy.ServiceException as e:
+            rospy.loginfo(f"Release service call failed: {e}")
+            return False
 ################################################################################
 ## convenience funcs
 def rostf_to_se3(rostf):
