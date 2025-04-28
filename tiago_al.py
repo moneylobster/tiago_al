@@ -58,9 +58,10 @@ class Tiago():
             "torso_mode", "torso_current", "torso_velocity", "torso_position", "torso_abs_position", "torso_temperature",
             "wheel_left_mode", "wheel_left_current", "wheel_left_velocity", "wheel_left_position", "wheel_left_torque", "wheel_left_temperature",
             "wheel_right_mode", "wheel_right_current", "wheel_right_velocity", "wheel_right_position", "wheel_right_torque", "wheel_right_temperature"]
-
         vals=data.values
         self.stats=dict(zip(names,vals))
+
+    
         
 class TiagoHead():
     def __init__(self):
@@ -94,6 +95,7 @@ class TiagoArm():
     def __init__(self):
         self.robot=moveit_commander.RobotCommander()
         self.move_group=moveit_commander.MoveGroupCommander("arm")
+        # docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.htm
     
     def current_pose(self):
         '''Returns the current pose of the arm as SE3.'''
