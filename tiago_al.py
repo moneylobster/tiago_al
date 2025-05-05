@@ -32,11 +32,13 @@ class Tiago():
 
 
         # motor stats
-        # /motors_statistics/values should provide the values only, use in case this one is too slow.
         self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self.stats_callback, queue_size=10)
         self.stats={}
         
         self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
+
+        ## Moveit stuff
+        self.planning_scene=moveit_commander.planning_scene_interface.PlanningSceneInterface()
 
         # TODO import the msg type this is taking in, and what sorta message it's taking in
         # self.gravity_compensation_client=actionlib.SimpleActionClient("gravity_compensation")
@@ -60,7 +62,6 @@ class Tiago():
             "wheel_right_mode", "wheel_right_current", "wheel_right_velocity", "wheel_right_position", "wheel_right_torque", "wheel_right_temperature"]
         vals=data.values
         self.stats=dict(zip(names,vals))
-
     
         
 class TiagoHead():
@@ -95,8 +96,8 @@ class TiagoArm():
     def __init__(self):
         self.robot=moveit_commander.RobotCommander()
         self.move_group=moveit_commander.MoveGroupCommander("arm")
-        # docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.htm
-    
+        # docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.html
+        
     def current_pose(self):
         '''Returns the current pose of the arm as SE3.'''
         return rospose_to_se3(self.move_group.get_current_pose())
@@ -223,3 +224,15 @@ def se3_to_pose(se3):
     pose.orientation.w=quat[3]
     
     return pose
+
+def find_perp_vector(vector):
+    """Find a perpendicular vector to a vector.
+
+    Ref:
+    Ken Whatmough (https://math.stackexchange.com/users/918128/ken-whatmough), How to find perpendicular vector to another vector?, URL (version: 2023-07-14): https://math.stackexchange.com/q/4112622
+    """
+    x,y,z=vector
+    return np.array([np.copysign(z,x),
+                     np.copysign(z,y),
+                     -np.copysign(abs(x)+abs(y),z)])
+
