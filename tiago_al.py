@@ -11,15 +11,20 @@ from cv_bridge import CvBridge
 
 from sensor_msgs.msg import Image, CameraInfo
 from tf2_msgs.msg import TFMessage
-from geometry_msgs.msg import TransformStamped, Twist, Pose
+from geometry_msgs.msg import TransformStamped, Twist, Pose, PoseStamped
 from trajectory_msgs.msg import JointTrajectory
 from control_msgs.msg import JointTrajectoryControllerState
 
 # tiago-specific messages
 from pal_statistics_msgs.msg import StatisticsValues
 
+################################################################################
+## TIAGO
+
 class Tiago():
     def __init__(self):
+        # start a ros node
+        rospy.init_node("tiago_al", anonymous=True)
         # classes relating exclusively to individual components
         self.head=TiagoHead()
         self.arm=RetimingTiagoArm("time_optimal_trajectory_generation")
@@ -30,11 +35,9 @@ class Tiago():
         self.tflistener = tf2_ros.TransformListener(self.tfbuffer)
         self.tf_pub=rospy.Publisher("/tf", TFMessage, queue_size=10)
 
-
         # motor stats
-        self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self.stats_callback, queue_size=10)
+        self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self._stats_callback, queue_size=10)
         self.stats={}
-        
         self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
 
         ## Moveit stuff
@@ -43,7 +46,23 @@ class Tiago():
         # TODO import the msg type this is taking in, and what sorta message it's taking in
         # self.gravity_compensation_client=actionlib.SimpleActionClient("gravity_compensation")
 
-    def stats_callback(self, data):
+    def get_transform(self, wrt, this):
+        """Return an SE3 transform WRT_T_THIS from WRT to THIS."""
+        return rostf_to_se3(self.tfbuffer.lookup_transform(wrt, this, rospy.Time.now(), rospy.Duration(1.0)))
+
+    def publish_transform(self, pose, wrt, name):
+        """Publish an SE3 transform POSE which gives the relation WRT_T_NAME."""
+        for _ in range(2):
+            tfmsg=TFMessage()
+            goal_frame=se3_to_rostf(pose)
+            goal_frame.header.stamp=rospy.Time.now()
+            goal_frame.header.frame_id=wrt
+            goal_frame.child_frame_id="goal_frame"
+            tfmsg.transforms=[goal_frame]
+            self.tf_pub.publish(tfmsg)
+            rospy.sleep(0.05)
+
+    def _stats_callback(self, data):
         names=[
             "publish_async_attempts", "publish_async_failures", "publish_buffer_full_errors", "last_async_pub_duration",
             "arm1_mode", "arm1_current", "arm1_velocity", "arm1_position", "arm1_abs_position", "arm1_temperature",
@@ -62,41 +81,52 @@ class Tiago():
             "wheel_right_mode", "wheel_right_current", "wheel_right_velocity", "wheel_right_position", "wheel_right_torque", "wheel_right_temperature"]
         vals=data.values
         self.stats=dict(zip(names,vals))
-    
+
+################################################################################
+## HEAD
         
 class TiagoHead():
     def __init__(self):
         ## Cameras
+        self.camera_frame="xtion_rgb_optical_frame" #there's also xtion_rgb_optical_frame
         # RGBD Camera
-        self.rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image, self.rgb_callback, queue_size=10)
+        self.rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
+                                        self._rgb_callback, queue_size=10)
         self.rgb = None
-        self.depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image, self.depth_callback, queue_size=10)
+        self.depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
+                                          self._depth_callback, queue_size=10)
         self.depth = None
         self.depth_data=None
         self.bridge = CvBridge()
         # Camera intrinsics
-        self.cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo, self.cam_info_callback, queue_size=10)
+        self.cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
+                                             self._cam_info_callback, queue_size=10)
         self.cam_raw_intrinsic = None
-        ## Transforms
-        self.state_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState, self.state_callback, queue_size=10)
-        self.state = None
-        self.state_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
+        ## Actuators
+        self.motor_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState,
+                                          self._motor_callback, queue_size=10)
+        self.motor = None
+        self.motor_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
         
-    def rgb_callback(self, data):
+    def _rgb_callback(self, data):
         self.rgb = self.bridge.imgmsg_to_cv2(data)
-    def depth_callback(self, data):
+    def _depth_callback(self, data):
         self.depth_data=data
         self.depth = self.bridge.imgmsg_to_cv2(data)
-    def state_callback(self,data):
-        self.state = data.actual.positions[0]
-    def cam_info_callback(self, data):
+    def _motor_callback(self,data):
+        self.motor = data.actual.positions[0]
+    def _cam_info_callback(self, data):
         self.cam_raw_intrinsic=np.array(data.K).reshape((3,3)) 
 
+################################################################################
+## ARM
+        
 class TiagoArm():
     def __init__(self):
         self.robot=moveit_commander.RobotCommander()
         self.move_group=moveit_commander.MoveGroupCommander("arm")
         # docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.html
+        self.endeff_frame="arm_tool_link"
         
     def current_pose(self):
         '''Returns the current pose of the arm as SE3.'''
@@ -165,8 +195,10 @@ class TiagoGripper():
         except rospy.ServiceException as e:
             rospy.loginfo(f"Release service call failed: {e}")
             return False
+        
 ################################################################################
 ## convenience funcs
+
 def rostf_to_se3(rostf):
     "convert a ros tf object into sm.SE3"
     trans=[rostf.transform.translation.x,
@@ -224,6 +256,12 @@ def se3_to_pose(se3):
     pose.orientation.w=quat[3]
     
     return pose
+
+def stamp_pose(pose, frame_id):
+    posestamped=PoseStamped()
+    posestamped.pose=pose
+    posestamped.header.frame_id=frame_id
+    return posestamped
 
 def find_perp_vector(vector):
     """Find a perpendicular vector to a vector.
