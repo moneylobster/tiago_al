@@ -9,11 +9,13 @@ import moveit_commander
 import tf2_ros
 from cv_bridge import CvBridge
 
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2
+from sensor_msgs.point_cloud2 import read_points
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped, Twist, Pose, PoseStamped
 from trajectory_msgs.msg import JointTrajectory
 from control_msgs.msg import JointTrajectoryControllerState
+
 
 # tiago-specific messages
 from pal_statistics_msgs.msg import StatisticsValues
@@ -50,9 +52,9 @@ class Tiago():
         """Return an SE3 transform WRT_T_THIS from WRT to THIS."""
         return rostf_to_se3(self.tfbuffer.lookup_transform(wrt, this, rospy.Time.now(), rospy.Duration(1.0)))
 
-    def publish_transform(self, pose, wrt, name):
+    def publish_transform(self, pose, wrt, name, tries=10):
         """Publish an SE3 transform POSE which gives the relation WRT_T_NAME."""
-        for _ in range(2):
+        for _ in range(tries):
             tfmsg=TFMessage()
             goal_frame=se3_to_rostf(pose)
             goal_frame.header.stamp=rospy.Time.now()
@@ -98,6 +100,10 @@ class TiagoHead():
         self.depth = None
         self.depth_data=None
         self.bridge = CvBridge()
+
+        self.pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
+                                             self._pointcloud_callback, queue_size=10)
+        self.pointcloud=None
         # Camera intrinsics
         self.cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
                                              self._cam_info_callback, queue_size=10)
@@ -111,8 +117,10 @@ class TiagoHead():
     def _rgb_callback(self, data):
         self.rgb = self.bridge.imgmsg_to_cv2(data)
     def _depth_callback(self, data):
-        self.depth_data=data
         self.depth = self.bridge.imgmsg_to_cv2(data)
+    def _pointcloud_callback(self, data):
+        self.pointcloud_frame=data.header.frame_id
+        self.pointcloud=read_points(data)
     def _motor_callback(self,data):
         self.motor = data.actual.positions[0]
     def _cam_info_callback(self, data):
@@ -131,10 +139,13 @@ class TiagoArm():
     def current_pose(self):
         '''Returns the current pose of the arm as SE3.'''
         return rospose_to_se3(self.move_group.get_current_pose())
-    def plan_trajectory(self, ros_trajectory):
+    def plan_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0):
         '''Plan the given trajectory.
-        ROS_TRAJECTORY is a list of Pose geometry messages.'''
-        (plan, fraction) = self.move_group.compute_cartesian_path(ros_trajectory, 0.001, 0.0,
+        ROS_TRAJECTORY is a list of SE3 poses.'''
+        ros_trajectory=[se3_to_pose(se3) for se3 in trajectory]
+        (plan, fraction) = self.move_group.compute_cartesian_path(ros_trajectory,
+                                                                  eef_step,
+                                                                  jump_threshold,
                                                                   avoid_collisions=True,
                                                                   path_constraints=None)
         plan=self.postprocess_plan(plan)
