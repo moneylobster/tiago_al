@@ -139,10 +139,10 @@ class TiagoArm():
     def current_pose(self):
         '''Returns the current pose of the arm as SE3.'''
         return rospose_to_se3(self.move_group.get_current_pose())
-    def plan_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0):
+    def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0):
         '''Plan the given trajectory.
-        ROS_TRAJECTORY is a list of SE3 poses.'''
-        ros_trajectory=[se3_to_pose(se3) for se3 in trajectory]
+        TRAJECTORY is a list of SE3 poses.'''
+        ros_trajectory=[se3_to_rospose(se3) for se3 in trajectory]
         (plan, fraction) = self.move_group.compute_cartesian_path(ros_trajectory,
                                                                   eef_step,
                                                                   jump_threshold,
@@ -151,6 +151,15 @@ class TiagoArm():
         plan=self.postprocess_plan(plan)
         print(f"Planning complete, successfully planned {fraction} of the path.")
         return plan, fraction
+    def plan_to_pose(self, pose):
+        '''Plan to the given pose.
+        POSE is an SE3 pose.'''
+        self.move_group.set_pose_target(se3_to_rospose(pose))
+        success, plan, time, error=self.move_group.plan()
+        print(f"Planning took {time} seconds.")
+        if not success:
+            print(f"Planning failed. Error code {error}")
+        return (plan, success)
     def postprocess_plan(self, plan):
         '''Postprocess plan.'''
         # This class does no post-processing.
@@ -210,6 +219,11 @@ class TiagoGripper():
 ################################################################################
 ## convenience funcs
 
+def merge_trajectories(traj1, traj2):
+    "Merge RobotTrajectories traj1 and traj2 together. Modifies traj1."
+    traj1.joint_trajectory.points = traj1.joint_trajectory.points+traj2.joint_trajectory.points
+    return traj1
+
 def rostf_to_se3(rostf):
     "convert a ros tf object into sm.SE3"
     trans=[rostf.transform.translation.x,
@@ -253,7 +267,7 @@ def rospose_to_se3(rospose):
     tf.t=trans
     return tf
 
-def se3_to_pose(se3):
+def se3_to_rospose(se3):
     "convert an sm.SE3 into a ros pose"
     pose = Pose()
     pose.position.x=se3.t[0]
