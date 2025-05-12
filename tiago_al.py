@@ -9,12 +9,13 @@ import moveit_commander
 import tf2_ros
 from cv_bridge import CvBridge
 
-from sensor_msgs.msg import Image, CameraInfo, PointCloud2
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2, JointState
 from sensor_msgs.point_cloud2 import read_points
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped, Twist, Pose, PoseStamped
 from trajectory_msgs.msg import JointTrajectory
 from control_msgs.msg import JointTrajectoryControllerState
+from moveit_msgs.msg import RobotState
 
 
 # tiago-specific messages
@@ -35,7 +36,7 @@ class Tiago():
         # transforms
         self.tfbuffer = tf2_ros.Buffer()
         self.tflistener = tf2_ros.TransformListener(self.tfbuffer)
-        self.tf_pub=rospy.Publisher("/tf", TFMessage, queue_size=10)
+        self.tf_pub=rospy.Publisher("/tf_static", TFMessage, queue_size=10)
 
         # motor stats
         self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self._stats_callback, queue_size=10)
@@ -223,6 +224,23 @@ def merge_trajectories(traj1, traj2):
     "Merge RobotTrajectories traj1 and traj2 together. Modifies traj1."
     traj1.joint_trajectory.points = traj1.joint_trajectory.points+traj2.joint_trajectory.points
     return traj1
+
+def robot_state_from_traj(traj):
+    "Returns the RobotState that the robot will get to at the end of a RobotTrajectory traj."
+    joints=traj.joint_trajectory.points[-1].positions
+    joint_state=JointState()
+    joint_state.header.stamp = rospy.Time.now()
+    joint_state.name = ["arm_1_joint",
+                        "arm_2_joint",
+                        "arm_3_joint",
+                        "arm_4_joint",
+                        "arm_5_joint",
+                        "arm_6_joint",
+                        "arm_7_joint"]
+    joint_state.position = joints
+    moveit_robot_state = RobotState()
+    moveit_robot_state.joint_state = joint_state
+    return moveit_robot_state
 
 def rostf_to_se3(rostf):
     "convert a ros tf object into sm.SE3"
