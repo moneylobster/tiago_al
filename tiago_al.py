@@ -13,9 +13,10 @@ from sensor_msgs.msg import Image, CameraInfo, PointCloud2, JointState
 from sensor_msgs.point_cloud2 import read_points
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped, Twist, Pose, PoseStamped
-from trajectory_msgs.msg import JointTrajectory
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from control_msgs.msg import JointTrajectoryControllerState
 from moveit_msgs.msg import RobotState
+from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 
 
 # tiago-specific messages
@@ -43,11 +44,17 @@ class Tiago():
         self.stats={}
         self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
 
+        #actuators
+        self.torso_sub = rospy.Subscriber("/torso_controller/state", JointTrajectoryControllerState,
+                                          self._torso_callback, queue_size=10)
+        self.torso = None
+        self.torso_pub = rospy.Publisher("/torso_controller/command", JointTrajectory, queue_size=10)
+        self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
+        #play_motion
+        self.play_motion_client=actionlib.SimpleActionClient('play_motion', PlayMotionAction)
         ## Moveit stuff
         self.planning_scene=moveit_commander.planning_scene_interface.PlanningSceneInterface()
 
-        # TODO import the msg type this is taking in, and what sorta message it's taking in
-        # self.gravity_compensation_client=actionlib.SimpleActionClient("gravity_compensation")
 
     def get_transform(self, wrt, this):
         """Return an SE3 transform WRT_T_THIS from WRT to THIS."""
@@ -64,6 +71,30 @@ class Tiago():
             tfmsg.transforms=[goal_frame]
             self.tf_pub.publish(tfmsg)
             rospy.sleep(0.05)
+
+    def play_motion(self,motion_name):
+        """Play the motion specified by MOTION_NAME"""
+        self.play_motion_client.wait_for_server()
+        msg=PlayMotionGoal()
+        msg.motion_name=motion_name
+        self.play_motion_client.send_goal(msg)
+        self.play_motion_client.wait_for_result()
+        return self.play_motion_client.get_result()
+
+    def home(self):
+        self.play_motion("home")
+
+    def move_torso(self, goal):
+        trajpt=JointTrajectoryPoint()
+        trajpt.positions=[0.35]
+        trajpt.time_from_start=rospy.Duration(1)
+        torso_msg=JointTrajectory()
+        torso_msg.joint_names=[
+            "torso_lift_joint"
+        ]
+        torso_msg.points=[trajpt]
+        self.torso_pub.publish(torso_msg)
+        rospy.sleep(1)
 
     def _stats_callback(self, data):
         names=[
@@ -84,6 +115,9 @@ class Tiago():
             "wheel_right_mode", "wheel_right_current", "wheel_right_velocity", "wheel_right_position", "wheel_right_torque", "wheel_right_temperature"]
         vals=data.values
         self.stats=dict(zip(names,vals))
+
+    def _torso_callback(self, data):
+        self.torso = data.actual.positions[0]
 
 ################################################################################
 ## HEAD
