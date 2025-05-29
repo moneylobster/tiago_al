@@ -17,6 +17,7 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from control_msgs.msg import JointTrajectoryControllerState
 from moveit_msgs.msg import RobotState
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
+from std_srvs.srv import Empty
 
 
 # tiago-specific messages
@@ -26,9 +27,11 @@ from pal_statistics_msgs.msg import StatisticsValues
 ## TIAGO
 
 class Tiago():
+    "A class to act as an interface to Tiago's functionality"
     def __init__(self):
         # start a ros node
         rospy.init_node("tiago_al", anonymous=True)
+        ## Submodules
         # classes relating exclusively to individual components
         self.head=TiagoHead()
         self.arm=RetimingTiagoArm("time_optimal_trajectory_generation")
@@ -42,26 +45,29 @@ class Tiago():
         # motor stats
         self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self._stats_callback, queue_size=10)
         self.stats={}
-        self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
+        "A dictionary that holds temperature, position, current, etc. information for all motors in the robot."
 
         #actuators
         self.torso_sub = rospy.Subscriber("/torso_controller/state", JointTrajectoryControllerState,
                                           self._torso_callback, queue_size=10)
         self.torso = None
+        "Torso position."
+        
         self.torso_pub = rospy.Publisher("/torso_controller/command", JointTrajectory, queue_size=10)
         self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
-        #play_motion
+        
+        # To play prerecorded motions
         self.play_motion_client=actionlib.SimpleActionClient('play_motion', PlayMotionAction)
-        ## Moveit stuff
+        # Moveit stuff
         self.planning_scene=moveit_commander.planning_scene_interface.PlanningSceneInterface()
 
 
     def get_transform(self, wrt, this):
-        """Return an SE3 transform WRT_T_THIS from WRT to THIS."""
+        "Return an SE3 transform WRT_T_THIS from WRT to THIS."
         return rostf_to_se3(self.tfbuffer.lookup_transform(wrt, this, rospy.Time.now(), rospy.Duration(1.0)))
 
     def publish_transform(self, pose, wrt, name, tries=10):
-        """Publish an SE3 transform POSE which gives the relation WRT_T_NAME."""
+        "Publish an SE3 transform POSE which gives the relation WRT_T_NAME."
         for _ in range(tries):
             tfmsg=TFMessage()
             goal_frame=se3_to_rostf(pose)
@@ -82,11 +88,13 @@ class Tiago():
         return self.play_motion_client.get_result()
 
     def home(self):
+        "Move the robot to home configuration."
         self.play_motion("home")
 
     def move_torso(self, goal):
+        "Move torso to specified point."
         trajpt=JointTrajectoryPoint()
-        trajpt.positions=[0.35]
+        trajpt.positions=[goal]
         trajpt.time_from_start=rospy.Duration(1)
         torso_msg=JointTrajectory()
         torso_msg.joint_names=[
@@ -95,6 +103,21 @@ class Tiago():
         torso_msg.points=[trajpt]
         self.torso_pub.publish(torso_msg)
         rospy.sleep(1)
+
+    def move(self, x=0, y=0, z=0, rx=0,ry=0,rz=0):
+        """Move Tiago's base with the specified velocity.
+
+        +x is forward.
+        +rz is to the left (CCW)
+        """
+        base_msg=Twist()
+        base_msg.linear.x=x
+        base_msg.linear.y=y
+        base_msg.linear.z=z
+        base_msg.angular.x=rx
+        base_msg.angular.y=ry
+        base_msg.angular.z=rz
+        self.base_pub.publish(base_msg)
 
     def _stats_callback(self, data):
         names=[
@@ -123,30 +146,38 @@ class Tiago():
 ## HEAD
         
 class TiagoHead():
+    "Functions relating to Tiago's head. Cameras, motors etc."
     def __init__(self):
         ## Cameras
-        self.camera_frame="xtion_rgb_optical_frame" #there's also xtion_rgb_optical_frame
+        self.camera_frame="xtion_rgb_optical_frame"
+        "The frame used for the camera"
+        
         # RGBD Camera
+        self.bridge = CvBridge()
         self.rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
                                         self._rgb_callback, queue_size=10)
-        self.rgb = None
         self.depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
                                           self._depth_callback, queue_size=10)
-        self.depth = None
-        self.depth_data=None
-        self.bridge = CvBridge()
-
         self.pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
                                              self._pointcloud_callback, queue_size=10)
+        self.rgb = None
+        "Latest fetched RGB image. Size should be 640x480."
+        self.depth = None
+        "Latest fetched depth image. Size should be 640x480."
         self.pointcloud=None
+        "Pointcloud obtained from the depth image."
+        
         # Camera intrinsics
         self.cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
                                              self._cam_info_callback, queue_size=10)
         self.cam_raw_intrinsic = None
+        "Camera intrinsic matrix."
+        
         ## Actuators
         self.motor_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState,
                                           self._motor_callback, queue_size=10)
         self.motor = None
+        "Motor positions, 2 element list. The first one is yaw, the second is pitch."
         self.motor_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
         
     def _rgb_callback(self, data):
@@ -157,22 +188,24 @@ class TiagoHead():
         self.pointcloud_frame=data.header.frame_id
         self.pointcloud=read_points(data)
     def _motor_callback(self,data):
-        self.motor = data.actual.positions[0]
+        self.motor = data.actual.positions
     def _cam_info_callback(self, data):
         self.cam_raw_intrinsic=np.array(data.K).reshape((3,3)) 
 
 ################################################################################
 ## ARM
-        
+
 class TiagoArm():
+    "Functions relating to Tiago's arm: motion planning, etc."
     def __init__(self):
         self.robot=moveit_commander.RobotCommander()
         self.move_group=moveit_commander.MoveGroupCommander("arm")
-        # docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.html
+        "docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.html"
         self.endeff_frame="arm_tool_link"
+        "The end-effector frame used by moveit."
         
     def current_pose(self):
-        '''Returns the current pose of the arm as SE3.'''
+        "Returns the current pose of the arm as SE3."
         return rospose_to_se3(self.move_group.get_current_pose())
     def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0):
         '''Plan the given trajectory.
@@ -195,6 +228,17 @@ class TiagoArm():
         if not success:
             print(f"Planning failed. Error code {error}")
         return (plan, success)
+    def plan_to_poses(self, poses):
+        '''Plan to a sequential trajectory of POSES.
+        POSES is a list of SE3 poses.'''
+        plans=None
+        for pose in poses:
+            self.move_group.set_pose_target(pose)
+            success, plan, time, error=self.move_group.plan()
+            self.arm.move_group.set_start_state(robot_state_from_traj(plan))
+            plans=merge_trajectories(plans,plan)
+        plans=self.arm.postprocess_plan(plans)
+        return plans
     def postprocess_plan(self, plan):
         '''Postprocess plan.'''
         # This class does no post-processing.
@@ -204,6 +248,7 @@ class TiagoArm():
         self.move_group.execute(plan, wait=True)
 
 class RetimingTiagoArm(TiagoArm):
+    "This version runs RETIMING_ALGORITHM on the computed plan to smooth the trajectory."
     def __init__(self, retiming_algorithm):
         assert retiming_algorithm in ["iterative_time_parametrization",
                                       "iterative_spline_parametrization",
@@ -222,6 +267,7 @@ class RetimingTiagoArm(TiagoArm):
 
 
 class TiagoGripper():
+    "Functions relating to the gripper."
     def __init__(self):
         pass
     def grasp(self):
