@@ -16,7 +16,9 @@ from geometry_msgs.msg import TransformStamped, Twist, Pose, PoseStamped
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from control_msgs.msg import JointTrajectoryControllerState
 from moveit_msgs.msg import RobotState
+from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
+
 from std_srvs.srv import Empty
 
 
@@ -55,12 +57,12 @@ class Tiago():
         
         self.torso_pub = rospy.Publisher("/torso_controller/command", JointTrajectory, queue_size=10)
         self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
+        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
         
         # To play prerecorded motions
         self.play_motion_client=actionlib.SimpleActionClient('play_motion', PlayMotionAction)
         # Moveit stuff
         self.planning_scene=moveit_commander.planning_scene_interface.PlanningSceneInterface()
-
 
     def get_transform(self, wrt, this):
         "Return an SE3 transform WRT_T_THIS from WRT to THIS."
@@ -104,7 +106,7 @@ class Tiago():
         self.torso_pub.publish(torso_msg)
         rospy.sleep(1)
 
-    def move(self, x=0, y=0, z=0, rx=0,ry=0,rz=0):
+    def move(self, x=0, y=0, z=0, rx=0, ry=0, rz=0):
         """Move Tiago's base with the specified velocity.
 
         +x is forward.
@@ -118,6 +120,33 @@ class Tiago():
         base_msg.angular.y=ry
         base_msg.angular.z=rz
         self.base_pub.publish(base_msg)
+
+    def move_to(self, posestamped):
+        """Command Tiago to move to a certain pose using its nav stack.
+        Check if done with is_move_done
+        """
+        self.move_base_client.wait_for_server()
+        goal=MoveBaseGoal()
+        goal.target_pose.header.frame_id=posestamped.header.frame_id
+        goal.target_pose.header.stamp=rospy.Time.now()
+        # could probably do this better but w/e
+        goal.target_pose.pose.position.x=posestamped.pose.position.x
+        goal.target_pose.pose.position.y=posestamped.pose.position.y
+        goal.target_pose.pose.position.z=posestamped.pose.position.z
+        goal.target_pose.pose.orientation.x=posestamped.pose.orientation.x
+        goal.target_pose.pose.orientation.y=posestamped.pose.orientation.y
+        goal.target_pose.pose.orientation.z=posestamped.pose.orientation.z
+        goal.target_pose.pose.orientation.w=posestamped.pose.orientation.w
+        self.move_base_client.send_goal(goal)
+        return True
+
+    def is_move_done(self):
+        """Returns move_base server state, that is, whether the pose commanded by move_to has been reached."""
+        wait = self.move_base_client.wait_for_result()
+        if not wait:
+            rospy.logerr("Move_base server can't be reached!")
+        else:
+            return self.move_base_client.get_result()
 
     def _stats_callback(self, data):
         names=[
@@ -203,6 +232,8 @@ class TiagoArm():
         "docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.html"
         self.endeff_frame="arm_tool_link"
         "The end-effector frame used by moveit."
+        self.planning_frame=self.move_group.get_planning_frame()
+        "The planning frame used by moveit."
         
     def current_pose(self):
         "Returns the current pose of the arm as SE3."
@@ -397,3 +428,16 @@ def find_perp_vector(vector):
                      np.copysign(z,y),
                      -np.copysign(abs(x)+abs(y),z)])
 
+def rotate_se3(pose, axis, angle):
+    "Rotate an SE3 POSE around an AXIS by ANGLE."
+    t=np.copy(pose.t)
+    pose.t=[0,0,0]
+    if axis=="x":
+        rot=sm.SE3.Rx(angle)
+    elif axis=="y":
+        rot=sm.SE3.Ry(angle)
+    elif axis=="z":
+        rot=sm.SE3.Rz(angle)
+    pose=pose*rot
+    pose.t=t
+    return pose
