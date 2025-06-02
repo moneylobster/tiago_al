@@ -234,6 +234,8 @@ class TiagoArm():
         "The end-effector frame used by moveit."
         self.planning_frame=self.move_group.get_planning_frame()
         "The planning frame used by moveit."
+        self.move_group.set_num_planning_attempts(100)
+        self.move_group.set_planning_time(2)
         
     def current_pose(self):
         "Returns the current pose of the arm as SE3."
@@ -264,7 +266,7 @@ class TiagoArm():
         POSES is a list of SE3 poses.'''
         plans=None
         for pose in poses:
-            self.move_group.set_pose_target(pose)
+            self.move_group.set_pose_target(se3_to_rospose(pose))
             success, plan, time, error=self.move_group.plan()
             if not success:
                 rospy.logerr(f"Planning failed. {error}")
