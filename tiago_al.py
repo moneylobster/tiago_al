@@ -266,6 +266,9 @@ class TiagoArm():
         for pose in poses:
             self.move_group.set_pose_target(pose)
             success, plan, time, error=self.move_group.plan()
+            if not success:
+                rospy.logerr(f"Planning failed. {error}")
+                raise(Exception("Failed to plan."))
             self.arm.move_group.set_start_state(robot_state_from_traj(plan))
             plans=merge_trajectories(plans,plan)
         plans=self.arm.postprocess_plan(plans)
