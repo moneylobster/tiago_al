@@ -1,5 +1,6 @@
 ### Tiago ROS abstraction layer
 # to write stuff in python without worrying about the ROS parts too much
+
 import numpy as np
 import spatialmath as sm
 
@@ -23,7 +24,6 @@ from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 
 from std_srvs.srv import Empty
 
-
 # tiago-specific messages
 from pal_statistics_msgs.msg import StatisticsValues
 
@@ -38,8 +38,11 @@ class Tiago():
         ## Submodules
         # classes relating exclusively to individual components
         self.head=TiagoHead()
+        "Subclass for the head of the robot. Includes camera data."
         self.arm=RetimingTiagoArm("time_optimal_trajectory_generation")
+        "Subclass for the arm of the robot. Includes motion planning stuff."
         self.gripper=TiagoGripper()
+        "Subclass for things relating to gripper control."
 
         # transforms
         self.tfbuffer = tf2_ros.Buffer()
@@ -66,23 +69,30 @@ class Tiago():
         # Moveit stuff
         self.planning_scene=moveit_commander.planning_scene_interface.PlanningSceneInterface()
 
-    def get_transform(self, wrt, this):
-        "Return an SE3 transform WRT_T_THIS from WRT to THIS."
+    def get_transform(self, wrt: str, this: str) -> sm.SE3:
+        """Return an SE3 transform WRT_T_THIS from WRT to THIS.
+
+        wrt: which frame is the transform with respect to?
+        this: which frame do we want the transform of?"""
         return rostf_to_se3(self.tfbuffer.lookup_transform(wrt, this, rospy.Time.now(), rospy.Duration(1.0)))
 
-    def publish_transform(self, pose, wrt, name, tries=10):
-        "Publish an SE3 transform POSE which gives the relation WRT_T_NAME."
+    def publish_transform(self, pose: sm.SE3, wrt: str, name: str, tries=10):
+        """Publish an SE3 transform POSE which gives the relation WRT_T_NAME.
+
+        pose: the transform as an sm.SE3 pose.
+        wrt: which frame is it with respect to?
+        name: name of the new frame"""
         for _ in range(tries):
             tfmsg=TFMessage()
             goal_frame=se3_to_rostf(pose)
             goal_frame.header.stamp=rospy.Time.now()
             goal_frame.header.frame_id=wrt
-            goal_frame.child_frame_id="goal_frame"
+            goal_frame.child_frame_id=name
             tfmsg.transforms=[goal_frame]
             self.tf_pub.publish(tfmsg)
             rospy.sleep(0.05)
 
-    def play_motion(self,motion_name):
+    def play_motion(self, motion_name: str):
         """Play the motion specified by MOTION_NAME"""
         self.play_motion_client.wait_for_server()
         msg=PlayMotionGoal()
@@ -95,7 +105,7 @@ class Tiago():
         "Move the robot to home configuration."
         self.play_motion("home")
 
-    def say(self, words, language="en"):
+    def say(self, words: str, language="en"):
         """Speak using espeak-ng.
         
         words: What to say
@@ -108,7 +118,7 @@ class Tiago():
             raise NotImplementedError(f"Unsupported language {language}")
         subprocess.run(cmd)
 
-    def move_torso(self, goal):
+    def move_torso(self, goal: float):
         "Move torso to specified point."
         trajpt=JointTrajectoryPoint()
         trajpt.positions=[goal]
@@ -136,7 +146,7 @@ class Tiago():
         base_msg.angular.z=rz
         self.base_pub.publish(base_msg)
 
-    def move_to(self, posestamped):
+    def move_to(self, posestamped: PoseStamped):
         """Command Tiago to move to a certain pose using its nav stack.
         Check if done with is_move_done
         """
@@ -197,12 +207,12 @@ class TiagoHead():
         "The frame used for the camera"
         
         # RGBD Camera
-        self.bridge = CvBridge()
-        self.rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
+        self._bridge = CvBridge()
+        self._rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
                                         self._rgb_callback, queue_size=10)
-        self.depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
+        self._depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
                                           self._depth_callback, queue_size=10)
-        self.pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
+        self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
                                              self._pointcloud_callback, queue_size=10)
         self.rgb = None
         "Latest fetched RGB image. Size should be 640x480."
@@ -210,24 +220,26 @@ class TiagoHead():
         "Latest fetched depth image. Size should be 640x480."
         self.pointcloud=None
         "Pointcloud obtained from the depth image."
+        self.pointcloud_frame=None
+        "The name of the frame that the pointcloud is relative to."
         
         # Camera intrinsics
-        self.cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
+        self._cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
                                              self._cam_info_callback, queue_size=10)
         self.cam_raw_intrinsic = None
         "Camera intrinsic matrix."
         
         ## Actuators
-        self.motor_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState,
+        self._motor_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState,
                                           self._motor_callback, queue_size=10)
         self.motor = None
         "Motor positions, 2 element list. The first one is yaw, the second is pitch."
-        self.motor_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
+        self._motor_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
         
     def _rgb_callback(self, data):
-        self.rgb = self.bridge.imgmsg_to_cv2(data)
+        self.rgb = self._bridge.imgmsg_to_cv2(data)
     def _depth_callback(self, data):
-        self.depth = self.bridge.imgmsg_to_cv2(data)
+        self.depth = self._bridge.imgmsg_to_cv2(data)
     def _pointcloud_callback(self, data):
         self.pointcloud_frame=data.header.frame_id
         self.pointcloud=read_points(data)
@@ -252,10 +264,10 @@ class TiagoArm():
         self.move_group.set_num_planning_attempts(100)
         self.move_group.set_planning_time(4)
         
-    def current_pose(self):
+    def current_pose(self) -> sm.SE3:
         "Returns the current pose of the arm as SE3."
         return rospose_to_se3(self.move_group.get_current_pose())
-    def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0):
+    def plan_cartesian_trajectory(self, trajectory: list[sm.SE3], eef_step=0.001, jump_threshold=0.0):
         '''Plan the given trajectory.
         TRAJECTORY is a list of SE3 poses.'''
         ros_trajectory=[se3_to_rospose(se3) for se3 in trajectory]
@@ -267,7 +279,7 @@ class TiagoArm():
         plan=self.postprocess_plan(plan)
         print(f"Planning complete, successfully planned {fraction} of the path.")
         return plan, fraction
-    def plan_to_pose(self, pose):
+    def plan_to_pose(self, pose: sm.SE3):
         '''Plan to the given pose.
         POSE is an SE3 pose.'''
         self.move_group.set_pose_target(se3_to_rospose(pose))
@@ -276,7 +288,7 @@ class TiagoArm():
         if not success:
             print(f"Planning failed. Error code {error}")
         return (plan, success)
-    def plan_to_poses(self, poses, start_state=None):
+    def plan_to_poses(self, poses: list[sm.SE3], start_state=None):
         '''Plan to a sequential trajectory of POSES.
         poses: a list of SE3 poses.
         start_state: optional starting state, default is the current state.'''
@@ -305,7 +317,7 @@ class TiagoArm():
 
 class RetimingTiagoArm(TiagoArm):
     "This version runs RETIMING_ALGORITHM on the computed plan to smooth the trajectory."
-    def __init__(self, retiming_algorithm):
+    def __init__(self, retiming_algorithm: str):
         assert retiming_algorithm in ["iterative_time_parametrization",
                                       "iterative_spline_parametrization",
                                       "time_optimal_trajectory_generation"]
@@ -363,7 +375,7 @@ def merge_trajectories(traj1, traj2):
     traj1.joint_trajectory.points = traj1.joint_trajectory.points+traj2.joint_trajectory.points
     return traj1
 
-def robot_state_from_traj(traj):
+def robot_state_from_traj(traj) -> RobotState:
     "Returns the RobotState that the robot will get to at the end of a RobotTrajectory traj."
     joints=traj.joint_trajectory.points[-1].positions
     joint_state=JointState()
@@ -380,7 +392,7 @@ def robot_state_from_traj(traj):
     moveit_robot_state.joint_state = joint_state
     return moveit_robot_state
 
-def rostf_to_se3(rostf):
+def rostf_to_se3(rostf: TransformStamped) -> sm.SE3:
     "convert a ros tf object into sm.SE3"
     trans=[rostf.transform.translation.x,
            rostf.transform.translation.y,
@@ -394,7 +406,7 @@ def rostf_to_se3(rostf):
     tf.t=trans
     return tf
 
-def se3_to_rostf(se3):   
+def se3_to_rostf(se3: sm.SE3) -> TransformStamped:
     "convert an sm.SE3 object into a ros tf"
     tf=TransformStamped()
     tf.transform.translation.x=se3.t[0]
@@ -409,7 +421,7 @@ def se3_to_rostf(se3):
 
     return tf    
 
-def rospose_to_se3(rospose):
+def rospose_to_se3(rospose: Pose) -> sm.SE3:
     "convert a ros pose into sm.SE3"
     trans=[rospose.pose.position.x,
            rospose.pose.position.y,
@@ -423,7 +435,7 @@ def rospose_to_se3(rospose):
     tf.t=trans
     return tf
 
-def se3_to_rospose(se3):
+def se3_to_rospose(se3: sm.SE3) -> Pose:
     "convert an sm.SE3 into a ros pose"
     pose = Pose()
     pose.position.x=se3.t[0]
@@ -438,7 +450,7 @@ def se3_to_rospose(se3):
     
     return pose
 
-def stamp_pose(pose, frame_id):
+def stamp_pose(pose: Pose, frame_id: str) -> PoseStamped:
     posestamped=PoseStamped()
     posestamped.pose=pose
     posestamped.header.frame_id=frame_id
@@ -455,8 +467,9 @@ def find_perp_vector(vector):
                      np.copysign(z,y),
                      -np.copysign(abs(x)+abs(y),z)])
 
-def rotate_se3(pose, axis, angle):
+def rotate_se3(pose: sm.SE3, axis: str, angle: float) -> sm.SE3:
     "Rotate an SE3 POSE around an AXIS by ANGLE."
+    assert axis in ["x", "y", "z"], f"{axis} is not x, y or z"
     t=np.copy(pose.t)
     pose.t=[0,0,0]
     if axis=="x":
