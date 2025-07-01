@@ -1,0 +1,10 @@
+[project]
+name = "tiago_al"
+version = "0.1.0"
+description = "to write stuff in python without worrying about the ROS parts too much"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+	"spatialmath-python"
+]
