@@ -3,6 +3,8 @@
 import numpy as np
 import spatialmath as sm
 
+import subprocess
+
 import rospy
 import actionlib
 import moveit_commander
@@ -92,6 +94,19 @@ class Tiago():
     def home(self):
         "Move the robot to home configuration."
         self.play_motion("home")
+
+    def say(self, words, language="en"):
+        """Speak using espeak-ng.
+        
+        words: What to say
+        language: either en or tr"""
+        if language=="en":
+            cmd=["espeak-ng", f'"{words}"']
+        elif language=="tr":
+            cmd=["espeak-ng", "-v", "tr", "-s", "150" ,f'"{words}"']
+        else:
+            raise NotImplementedError(f"Unsupported language {language}")
+        subprocess.run(cmd)
 
     def move_torso(self, goal):
         "Move torso to specified point."
@@ -235,7 +250,7 @@ class TiagoArm():
         self.planning_frame=self.move_group.get_planning_frame()
         "The planning frame used by moveit."
         self.move_group.set_num_planning_attempts(100)
-        self.move_group.set_planning_time(2)
+        self.move_group.set_planning_time(4)
         
     def current_pose(self):
         "Returns the current pose of the arm as SE3."
@@ -261,19 +276,24 @@ class TiagoArm():
         if not success:
             print(f"Planning failed. Error code {error}")
         return (plan, success)
-    def plan_to_poses(self, poses):
+    def plan_to_poses(self, poses, start_state=None):
         '''Plan to a sequential trajectory of POSES.
-        POSES is a list of SE3 poses.'''
+        poses: a list of SE3 poses.
+        start_state: optional starting state, default is the current state.'''
+        if start_state is None:
+            start_state=self.move_group.get_current_state()
         plans=None
-        for pose in poses:
+        self.move_group.set_start_state(start_state)
+        for i,pose in enumerate(poses):
             self.move_group.set_pose_target(se3_to_rospose(pose))
             success, plan, time, error=self.move_group.plan()
             if not success:
-                rospy.logerr(f"Planning failed. {error}")
+                rospy.logerr(f"Planning failed on step {i}/{len(poses)}. {error}")
                 raise(Exception("Failed to plan."))
-            self.arm.move_group.set_start_state(robot_state_from_traj(plan))
+            print("planned a bit...")
+            self.move_group.set_start_state(robot_state_from_traj(plan))
             plans=merge_trajectories(plans,plan)
-        plans=self.arm.postprocess_plan(plans)
+        plans=self.postprocess_plan(plans)
         return plans
     def postprocess_plan(self, plan):
         '''Postprocess plan.'''
@@ -338,6 +358,8 @@ class TiagoGripper():
 
 def merge_trajectories(traj1, traj2):
     "Merge RobotTrajectories traj1 and traj2 together. Modifies traj1."
+    if traj1 is None:
+        return traj2
     traj1.joint_trajectory.points = traj1.joint_trajectory.points+traj2.joint_trajectory.points
     return traj1
 
