@@ -207,8 +207,9 @@ class Tiago():
 
     def _laser_callback(self, data):
         angles=np.arange(data.angle_min, data.angle_max, data.angle_increment)
-        sincos=np.array([np.sin(angles), np.cos(angles)])
-        self.laser=(sincos*data.ranges[:len(angles)]).T
+        # +x is toward robot's front, +y is toward the robot's left
+        cossin=np.array([np.cos(angles), np.sin(angles)])
+        self.laser=(cossin*data.ranges[:len(angles)]).T
         
 ################################################################################
 ## HEAD
