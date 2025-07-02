@@ -208,7 +208,7 @@ class Tiago():
     def _laser_callback(self, data):
         angles=np.arange(data.angle_min, data.angle_max, data.angle_increment)
         sincos=np.array([np.sin(angles), np.cos(angles)])
-        self.laser=(sincos*data.ranges[:len(sincos)]).T
+        self.laser=(sincos*data.ranges[:len(angles)]).T
         
 ################################################################################
 ## HEAD
