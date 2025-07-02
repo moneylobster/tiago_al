@@ -12,7 +12,7 @@ import moveit_commander
 import tf2_ros
 from cv_bridge import CvBridge
 
-from sensor_msgs.msg import Image, CameraInfo, PointCloud2, JointState
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2, JointState, LaserScan
 from sensor_msgs.point_cloud2 import read_points
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped, Twist, Pose, PoseStamped
@@ -32,7 +32,11 @@ from pal_statistics_msgs.msg import StatisticsValues
 
 class Tiago():
     "A class to act as an interface to Tiago's functionality"
-    def __init__(self):
+    def __init__(self,
+                 transforms=True,
+                 stats=True,
+                 laser=True,
+                 torso=True):
         # start a ros node
         rospy.init_node("tiago_al", anonymous=True)
         ## Submodules
@@ -43,23 +47,28 @@ class Tiago():
         "Subclass for the arm of the robot. Includes motion planning stuff."
         self.gripper=TiagoGripper()
         "Subclass for things relating to gripper control."
-
         # transforms
-        self.tfbuffer = tf2_ros.Buffer()
-        self.tflistener = tf2_ros.TransformListener(self.tfbuffer)
-        self.tf_pub=rospy.Publisher("/tf_static", TFMessage, queue_size=10)
-
+        if transforms is not None:
+            self.tfbuffer = tf2_ros.Buffer()
+            self.tflistener = tf2_ros.TransformListener(self.tfbuffer)
+            self.tf_pub=rospy.Publisher("/tf_static", TFMessage, queue_size=10)
         # motor stats
-        self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self._stats_callback, queue_size=10)
-        self.stats={}
-        "A dictionary that holds temperature, position, current, etc. information for all motors in the robot."
-
+        if stats is not None:
+            self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self._stats_callback, queue_size=10)
+            self.stats={}
+            "A dictionary that holds temperature, position, current, etc. information for all motors in the robot."  
+        #sensors
+        if laser is not None:
+            self._laser_sub=rospy.Subscriber("/scan", LaserScan,
+                                             self._laser_callback, queue_size=10)
+            self.laser = None
+            "Results of the planar laser scan as an array of 2D points according to base frame (+x forward, +y left)."
         #actuators
-        self.torso_sub = rospy.Subscriber("/torso_controller/state", JointTrajectoryControllerState,
-                                          self._torso_callback, queue_size=10)
-        self.torso = None
-        "Torso position."
-        
+        if torso is not None:
+            self.torso_sub = rospy.Subscriber("/torso_controller/state", JointTrajectoryControllerState,
+                                              self._torso_callback, queue_size=10)
+            self.torso = None
+            "Torso position."
         self.torso_pub = rospy.Publisher("/torso_controller/command", JointTrajectory, queue_size=10)
         self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
         self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -196,24 +205,37 @@ class Tiago():
     def _torso_callback(self, data):
         self.torso = data.actual.positions[0]
 
+    def _laser_callback(self, data):
+        angles=np.arange(data.angle_min, data.angle_max, data.angle_increment)
+        sincos=np.array([np.sin(angles), np.cos(angles)])
+        self.laser=(sincos*data.ranges[:len(sincos)]).T
+        
 ################################################################################
 ## HEAD
         
 class TiagoHead():
     "Functions relating to Tiago's head. Cameras, motors etc."
-    def __init__(self):
+    def __init__(self,
+                 rgb=True,
+                 depth=True,
+                 pointcloud=True,
+                 caminfo=True,
+                 motor=True):
         ## Cameras
         self.camera_frame="xtion_rgb_optical_frame"
         "The frame used for the camera"
         
         # RGBD Camera
         self._bridge = CvBridge()
-        self._rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
-                                        self._rgb_callback, queue_size=10)
-        self._depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
-                                          self._depth_callback, queue_size=10)
-        self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
-                                             self._pointcloud_callback, queue_size=10)
+        if rgb is not None:
+            self._rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
+                                             self._rgb_callback, queue_size=10)
+        if depth is not None:
+            self._depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
+                                               self._depth_callback, queue_size=10)
+        if pointcloud is not None:
+            self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
+                                                  self._pointcloud_callback, queue_size=10)
         self.rgb = None
         "Latest fetched RGB image. Size should be 640x480."
         self.depth = None
@@ -224,14 +246,16 @@ class TiagoHead():
         "The name of the frame that the pointcloud is relative to."
         
         # Camera intrinsics
-        self._cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
-                                             self._cam_info_callback, queue_size=10)
+        if caminfo is not None:
+            self._cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
+                                                  self._cam_info_callback, queue_size=10)
         self.cam_raw_intrinsic = None
         "Camera intrinsic matrix."
         
         ## Actuators
-        self._motor_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState,
-                                          self._motor_callback, queue_size=10)
+        if motor is not None:
+            self._motor_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState,
+                                               self._motor_callback, queue_size=10)
         self.motor = None
         "Motor positions, 2 element list. The first one is yaw, the second is pitch."
         self._motor_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
@@ -267,7 +291,7 @@ class TiagoArm():
     def current_pose(self) -> sm.SE3:
         "Returns the current pose of the arm as SE3."
         return rospose_to_se3(self.move_group.get_current_pose())
-    def plan_cartesian_trajectory(self, trajectory: list[sm.SE3], eef_step=0.001, jump_threshold=0.0):
+    def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0):
         '''Plan the given trajectory.
         TRAJECTORY is a list of SE3 poses.'''
         ros_trajectory=[se3_to_rospose(se3) for se3 in trajectory]
@@ -288,7 +312,7 @@ class TiagoArm():
         if not success:
             print(f"Planning failed. Error code {error}")
         return (plan, success)
-    def plan_to_poses(self, poses: list[sm.SE3], start_state=None):
+    def plan_to_poses(self, poses, start_state=None):
         '''Plan to a sequential trajectory of POSES.
         poses: a list of SE3 poses.
         start_state: optional starting state, default is the current state.'''
