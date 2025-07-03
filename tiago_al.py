@@ -22,6 +22,8 @@ from moveit_msgs.msg import RobotState
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 
+from pal_common_msgs.msg import DisableAction, DisableGoal
+
 from std_srvs.srv import Empty
 
 # tiago-specific messages
@@ -210,8 +212,8 @@ class Tiago():
     @property
     def laser_cartesian(self):
         "Results of the planar laser scan as an array of 2D points according to base frame (+x forward, +y left)."
-        cossin=np.array([np.cos(self.laser[0,:]), np.sin(self.laser[0,:])])
-        return (cossin*self.laser[1,:len(self.laser[0,:])]).T
+        cossin=np.array([np.cos(self.laser[0]), np.sin(self.laser[0])])
+        return (cossin*self.laser[1][len(self.laser[0,:])]).T
         
 ################################################################################
 ## HEAD
@@ -262,6 +264,13 @@ class TiagoHead():
         self.motor = None
         "Motor positions, 2 element list. The first one is yaw, the second is pitch."
         self._motor_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
+
+        # disable head manager
+        head_disable_client=actionlib.SimpleActionClient("/pal_head_manager/disable", DisableAction)
+        head_disable_client.wait_for_server()
+        disable_goal=DisableGoal()
+        head_disable_client.send_goal(disable_goal)
+        
         
     def _rgb_callback(self, data):
         self.rgb = self._bridge.imgmsg_to_cv2(data)
