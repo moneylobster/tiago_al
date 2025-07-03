@@ -62,7 +62,7 @@ class Tiago():
             self._laser_sub=rospy.Subscriber("/scan", LaserScan,
                                              self._laser_callback, queue_size=10)
             self.laser = None
-            "Results of planar laser scan as LaserScan object. Use .ranges to access the increments, or laser_cartesian to access the points in a cartesian frame."
+            "Results of planar laser scan as [angle, distance]. Use laser_cartesian to access the points in a cartesian frame."
         #actuators
         if torso is not None:
             self.torso_sub = rospy.Subscriber("/torso_controller/state", JointTrajectoryControllerState,
@@ -204,15 +204,14 @@ class Tiago():
 
     def _torso_callback(self, data):
         self.torso = data.actual.positions[0]
-
     def _laser_callback(self, data):
-        self.laser=data
+        angles=np.arange(self.laser.angle_min, self.laser.angle_max, self.laser.angle_increment)
+        self.laser=[angles, data[:len(angles)]]
     @property
     def laser_cartesian(self):
         "Results of the planar laser scan as an array of 2D points according to base frame (+x forward, +y left)."
-        angles=np.arange(self.laser.angle_min, self.laser.angle_max, self.laser.angle_increment)
-        cossin=np.array([np.cos(angles), np.sin(angles)])
-        return (cossin*self.laser.ranges[:len(angles)]).T
+        cossin=np.array([np.cos(self.laser[0,:]), np.sin(self.laser[0,:])])
+        return (cossin*self.laser[1,:len(self.laser[0,:])]).T
         
 ################################################################################
 ## HEAD
