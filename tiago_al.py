@@ -205,7 +205,7 @@ class Tiago():
     def _torso_callback(self, data):
         self.torso = data.actual.positions[0]
     def _laser_callback(self, data):
-        angles=np.arange(self.laser.angle_min, self.laser.angle_max, self.laser.angle_increment)
+        angles=np.arange(data.angle_min, data.angle_max, data.angle_increment)
         self.laser=[angles, data[:len(angles)]]
     @property
     def laser_cartesian(self):
