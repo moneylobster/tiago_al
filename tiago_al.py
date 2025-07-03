@@ -206,7 +206,7 @@ class Tiago():
         self.torso = data.actual.positions[0]
     def _laser_callback(self, data):
         angles=np.arange(data.angle_min, data.angle_max, data.angle_increment)
-        self.laser=[angles, data[:len(angles)]]
+        self.laser=[angles, data.ranges[:len(angles)]]
     @property
     def laser_cartesian(self):
         "Results of the planar laser scan as an array of 2D points according to base frame (+x forward, +y left)."
