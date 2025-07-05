@@ -65,6 +65,8 @@ class Tiago():
                                              self._laser_callback, queue_size=10)
             self.laser = None
             "Results of planar laser scan as [angle, distance]. Use laser_cartesian to access the points in a cartesian frame."
+            self.laser_frame = "base_laser_link"
+            "Reference frame for the laser scanner."
         #actuators
         if torso is not None:
             self.torso_sub = rospy.Subscriber("/torso_controller/state", JointTrajectoryControllerState,
@@ -382,7 +384,7 @@ class TiagoGripper():
         try:
             grasp_service = rospy.ServiceProxy('/parallel_gripper_controller/grasp', Empty)
             response = grasp_service()
-            rospy.loginfo("Grasp service call successful")
+            rospy.loginfo(f"Grasp service call completed with response {response}")
             return True
         except rospy.ServiceException as e:
             rospy.loginfo(f"Grasp service call failed: {e}")
@@ -395,7 +397,7 @@ class TiagoGripper():
         try:
             release_service = rospy.ServiceProxy('/parallel_gripper_controller/release', Empty)
             response = release_service()
-            rospy.loginfo("Release service call successful")
+            rospy.loginfo(f"Release service call completed with response {response}")
             return True
         except rospy.ServiceException as e:
             rospy.loginfo(f"Release service call failed: {e}")
