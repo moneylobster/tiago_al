@@ -383,8 +383,8 @@ class TiagoGripper():
         rospy.wait_for_service('/parallel_gripper_controller/grasp')
         try:
             grasp_service = rospy.ServiceProxy('/parallel_gripper_controller/grasp', Empty)
-            response = grasp_service()
-            rospy.loginfo(f"Grasp service call completed with response {response}")
+            grasp_service()
+            rospy.loginfo("Grasp service call completed.")
             return True
         except rospy.ServiceException as e:
             rospy.loginfo(f"Grasp service call failed: {e}")
@@ -396,8 +396,8 @@ class TiagoGripper():
         rospy.wait_for_service('/parallel_gripper_controller/release')
         try:
             release_service = rospy.ServiceProxy('/parallel_gripper_controller/release', Empty)
-            response = release_service()
-            rospy.loginfo(f"Release service call completed with response {response}")
+            release_service()
+            rospy.loginfo("Release service call completed")
             return True
         except rospy.ServiceException as e:
             rospy.loginfo(f"Release service call failed: {e}")
