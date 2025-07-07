@@ -305,9 +305,15 @@ class TiagoArm():
     def current_pose(self) -> sm.SE3:
         "Returns the current pose of the arm as SE3."
         return rospose_to_se3(self.move_group.get_current_pose())
-    def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0):
+    def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0, start_state=None):
         '''Plan the given trajectory.
-        TRAJECTORY is a list of SE3 poses.'''
+        trajectory: a list of SE3 poses denoting the waypoints.
+        eef_step: view move_group documentation (likely the interpolation increment)
+        jump_threshold: not sure, view move_group documentation
+        start_state: optional starting RobotState, default is the current state.'''
+        if start_state is None:
+            start_state=self.move_group.get_current_state()
+        self.move_group.set_start_state(start_state)
         ros_trajectory=[se3_to_rospose(se3) for se3 in trajectory]
         (plan, fraction) = self.move_group.compute_cartesian_path(ros_trajectory,
                                                                   eef_step,
@@ -329,7 +335,7 @@ class TiagoArm():
     def plan_to_poses(self, poses, start_state=None):
         '''Plan to a sequential trajectory of POSES.
         poses: a list of SE3 poses.
-        start_state: optional starting state, default is the current state.'''
+        start_state: optional starting RobotState, default is the current state.'''
         if start_state is None:
             start_state=self.move_group.get_current_state()
         plans=None
