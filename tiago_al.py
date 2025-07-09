@@ -285,10 +285,8 @@ class TiagoHead():
         self.motor = data.actual.positions
     def _cam_info_callback(self, data):
         self.cam_raw_intrinsic=np.array(data.K).reshape((3,3)) 
-
 ################################################################################
 ## ARM
-
 class TiagoArm():
     "Functions relating to Tiago's arm: motion planning, etc."
     def __init__(self):
@@ -299,11 +297,10 @@ class TiagoArm():
         "The end-effector frame used by moveit."
         self.planning_frame=self.move_group.get_planning_frame()
         "The planning frame used by moveit."
-        self.move_group.set_num_planning_attempts(100)
+        self.move_group.set_num_planning_attempts(200)
         self.move_group.set_planning_time(4)
-        
     def current_pose(self) -> sm.SE3:
-        "Returns the current pose of the arm as SE3."
+        "Returns the current pose of the arm as SE3 wrt the planning frame (base_footprint)."
         return rospose_to_se3(self.move_group.get_current_pose())
     def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0, start_state=None):
         '''Plan the given trajectory.
@@ -321,16 +318,16 @@ class TiagoArm():
                                                                   avoid_collisions=True,
                                                                   path_constraints=None)
         plan=self.postprocess_plan(plan)
-        print(f"Planning complete, successfully planned {fraction} of the path.")
+        print(f"[PLAN_CARTESIAN_TRAJECTORY] Planning complete, successfully planned {fraction} of the path.")
         return plan, fraction
     def plan_to_pose(self, pose: sm.SE3):
         '''Plan to the given pose.
         POSE is an SE3 pose.'''
         self.move_group.set_pose_target(se3_to_rospose(pose))
         success, plan, time, error=self.move_group.plan()
-        print(f"Planning took {time} seconds.")
+        print(f"[PLAN_TO_POSE] Planning took {time} seconds.")
         if not success:
-            print(f"Planning failed. Error code {error}")
+            print(f"[PLAN_TO_POSE] Planning failed. Error code {error}")
         return (plan, success)
     def plan_to_poses(self, poses, start_state=None):
         '''Plan to a sequential trajectory of POSES.
@@ -344,9 +341,9 @@ class TiagoArm():
             self.move_group.set_pose_target(se3_to_rospose(pose))
             success, plan, time, error=self.move_group.plan()
             if not success:
-                rospy.logerr(f"Planning failed on step {i}/{len(poses)}. {error}")
+                rospy.logerr(f"[PLAN_TO_POSES] Planning failed on step {i}/{len(poses)}. {error}")
                 raise(Exception("Failed to plan."))
-            print("planned a bit...")
+            print("[PLAN_TO_POSES] planned a bit...")
             self.move_group.set_start_state(robot_state_from_traj(plan))
             plans=merge_trajectories(plans,plan)
         plans=self.postprocess_plan(plans)
@@ -358,6 +355,11 @@ class TiagoArm():
     def execute_plan(self, plan):
         '''Execute plan.'''
         self.move_group.execute(plan, wait=True)
+    def RRMC(poses):
+        """Use resolved-rate motion control (velocity control) to take the end effector through the given poses.
+
+        poses: list of SE3 poses as the waypoints."""
+        pass
 
 class RetimingTiagoArm(TiagoArm):
     "This version runs RETIMING_ALGORITHM on the computed plan to smooth the trajectory."
