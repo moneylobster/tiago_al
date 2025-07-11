@@ -107,12 +107,18 @@ class Tiago():
 
     def play_motion(self, motion_name: str):
         """Play the motion specified by MOTION_NAME"""
-        self.play_motion_client.wait_for_server()
-        msg=PlayMotionGoal()
-        msg.motion_name=motion_name
-        self.play_motion_client.send_goal(msg)
-        self.play_motion_client.wait_for_result()
-        return self.play_motion_client.get_result()
+        if self.play_motion_client.wait_for_server(rospy.Duration(secs=1)):
+            msg=PlayMotionGoal()
+            msg.motion_name=motion_name
+            self.play_motion_client.send_goal(msg)
+            if self.play_motion_client.wait_for_result(rospy.Duration(secs=1)):
+                return self.play_motion_client.get_result()
+            else:
+                rospy.logerr("[PLAY_MOTION] Sent goal, didn't get reply before timeout.")
+                return False
+        else:
+            rospy.logerr("[PLAY_MOTION] Couldn't access play_motion server.")
+            return False
 
     def home(self):
         "Move the robot to home configuration."
@@ -163,28 +169,30 @@ class Tiago():
         """Command Tiago to move to a certain pose using its nav stack.
         Check if done with is_move_done
         """
-        self.move_base_client.wait_for_server()
-        goal=MoveBaseGoal()
-        goal.target_pose.header.frame_id=posestamped.header.frame_id
-        goal.target_pose.header.stamp=rospy.Time.now()
-        # could probably do this better but w/e
-        goal.target_pose.pose.position.x=posestamped.pose.position.x
-        goal.target_pose.pose.position.y=posestamped.pose.position.y
-        goal.target_pose.pose.position.z=posestamped.pose.position.z
-        goal.target_pose.pose.orientation.x=posestamped.pose.orientation.x
-        goal.target_pose.pose.orientation.y=posestamped.pose.orientation.y
-        goal.target_pose.pose.orientation.z=posestamped.pose.orientation.z
-        goal.target_pose.pose.orientation.w=posestamped.pose.orientation.w
-        self.move_base_client.send_goal(goal)
-        return True
+        if self.move_base_client.wait_for_server(rospy.Duration(secs=1)):
+            goal=MoveBaseGoal()
+            goal.target_pose.header.frame_id=posestamped.header.frame_id
+            goal.target_pose.header.stamp=rospy.Time.now()
+            # could probably do this better but w/e
+            goal.target_pose.pose.position.x=posestamped.pose.position.x
+            goal.target_pose.pose.position.y=posestamped.pose.position.y
+            goal.target_pose.pose.position.z=posestamped.pose.position.z
+            goal.target_pose.pose.orientation.x=posestamped.pose.orientation.x
+            goal.target_pose.pose.orientation.y=posestamped.pose.orientation.y
+            goal.target_pose.pose.orientation.z=posestamped.pose.orientation.z
+            goal.target_pose.pose.orientation.w=posestamped.pose.orientation.w
+            self.move_base_client.send_goal(goal)
+            return True
+        else:
+            rospy.logerr("[MOVE_TO] Couldn't access move_base server.")
+            return False
 
     def is_move_done(self):
         """Returns move_base server state, that is, whether the pose commanded by move_to has been reached."""
-        wait = self.move_base_client.wait_for_result()
-        if not wait:
-            rospy.logerr("Move_base server can't be reached!")
-        else:
+        if self.move_base_client.wait_for_result():
             return self.move_base_client.get_result()
+        else:
+            rospy.logerr("[IS_MOVE_DONE] Move_base server can't be reached!")
 
     def _stats_callback(self, data):
         names=[
@@ -269,9 +277,11 @@ class TiagoHead():
 
         # disable head manager
         head_disable_client=actionlib.SimpleActionClient("/pal_head_manager/disable", DisableAction)
-        head_disable_client.wait_for_server()
-        disable_goal=DisableGoal()
-        head_disable_client.send_goal(disable_goal)
+        if head_disable_client.wait_for_server(rospy.Duration(secs=1)):
+            disable_goal=DisableGoal()
+            head_disable_client.send_goal(disable_goal)
+        else:
+            rospy.logerr("[TIAGO_HEAD] Couldn't access pal_head_manager, not disabling it.")
         
         
     def _rgb_callback(self, data):
@@ -300,7 +310,7 @@ class TiagoArm():
         self.move_group.set_num_planning_attempts(200)
         self.move_group.set_planning_time(4)
     def current_pose(self) -> sm.SE3:
-        "Returns the current pose of the arm as SE3 wrt the planning frame (base_footprint)."
+        "Returns the current pose of the arm end effector (arm_tool_link) as SE3 wrt the planning frame (base_footprint)."
         return rospose_to_se3(self.move_group.get_current_pose())
     def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0, start_state=None):
         '''Plan the given trajectory.
