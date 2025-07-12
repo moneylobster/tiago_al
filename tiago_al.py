@@ -114,7 +114,7 @@ class Tiago():
             msg=PlayMotionGoal()
             msg.motion_name=motion_name
             self.play_motion_client.send_goal(msg)
-            if self.play_motion_client.wait_for_result(rospy.Duration(secs=1)):
+            if self.play_motion_client.wait_for_result(rospy.Duration(secs=30)):
                 return self.play_motion_client.get_result()
             else:
                 rospy.logerr("[PLAY_MOTION] Sent goal, didn't get reply before timeout.")
