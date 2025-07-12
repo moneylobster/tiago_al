@@ -3,6 +3,7 @@
 
 import numpy as np
 import spatialmath as sm
+import roboticstoolbox as rtb
 
 import subprocess
 
@@ -12,6 +13,7 @@ import moveit_commander
 import tf2_ros
 from cv_bridge import CvBridge
 
+from std_msgs.msg import Float64MultiArray, MultiArrayLayout, MultiArrayDimension
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, JointState, LaserScan
 from sensor_msgs.point_cloud2 import read_points
 from tf2_msgs.msg import TFMessage
@@ -25,6 +27,7 @@ from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 from pal_common_msgs.msg import DisableAction, DisableGoal
 
 from std_srvs.srv import Empty
+from controller_manager_msgs.srv import SwitchController, ListControllers
 
 # tiago-specific messages
 from pal_statistics_msgs.msg import StatisticsValues
@@ -45,7 +48,7 @@ class Tiago():
         # classes relating exclusively to individual components
         self.head=TiagoHead()
         "Subclass for the head of the robot. Includes camera data."
-        self.arm=RetimingTiagoArm("time_optimal_trajectory_generation")
+        self.arm=TiagoArm("time_optimal_trajectory_generation")
         "Subclass for the arm of the robot. Includes motion planning stuff."
         self.gripper=TiagoGripper()
         "Subclass for things relating to gripper control."
@@ -224,6 +227,12 @@ class Tiago():
         "Results of the planar laser scan as an array of 2D points according to base frame (+x forward, +y left)."
         cossin=np.array([np.cos(self.laser[0]), np.sin(self.laser[0])])
         return (cossin*self.laser[1][len(self.laser[0,:])]).T
+    def quit(self):
+        "Safely stop/shutdown Tiago. (TODO) Also stops movements if velocity controller is active."
+        self.board_detector.running=False
+        if self.arm.controller=="arm_forward_velocity_controller":
+            self.arm.stop=True
+            self.arm.velocity_stop()
         
 ################################################################################
 ## HEAD
@@ -299,7 +308,7 @@ class TiagoHead():
 ## ARM
 class TiagoArm():
     "Functions relating to Tiago's arm: motion planning, etc."
-    def __init__(self):
+    def __init__(self, retiming_algorithm: str):
         self.robot=moveit_commander.RobotCommander()
         self.move_group=moveit_commander.MoveGroupCommander("arm")
         "docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.html"
@@ -309,6 +318,31 @@ class TiagoArm():
         "The planning frame used by moveit."
         self.move_group.set_num_planning_attempts(200)
         self.move_group.set_planning_time(4)
+
+        assert retiming_algorithm in ["iterative_time_parametrization",
+                                      "iterative_spline_parametrization",
+                                      "time_optimal_trajectory_generation",
+                                      None], f"Retiming algorithm {retiming_algorithm} is not supported."
+        self.retiming_algorithm=retiming_algorithm
+
+        # TODO: it's possible to do this a bit better by checking the
+        # claimed_resources part of the listcontrollers response and
+        # seeing if they contain all arm joints instead of hardcoding
+        # possible controller names.
+        self.all_arm_joint_controllers=[
+            "arm_velocity_trajectory_controller",
+            "arm_impedance_controller",
+            "arm_forward_velocity_controller",
+            "arm_controller"]
+        "Controllers that can be used with the arm. Call switch_controller to use them."
+
+        self.stop=False
+        "Flag to determine whether arm should stop moving. Currently only works for the velocity controller."
+        self._velocity_pub=rospy.Publisher("/arm_forward_velocity_controller/command", Float64MultiArray, queue_size=1)
+    @property
+    def q(self):
+        "Return the current joint configuration, a 7-element array."
+        return np.array(self.arm.move_group.get_current_joint_values())
     @property
     def current_pose(self) -> sm.SE3:
         "The current pose of the arm end effector (arm_tool_link) as SE3 wrt the planning frame (base_footprint)."
@@ -317,12 +351,23 @@ class TiagoArm():
     def jacobo(self):
         """Returns the arm Jacobian wrt. the planning frame (base_footprint).
         Matrix is 6x7. Each row shows how the joints will affect spatial velocity [vx vy vz wx wy wz]."""
-        return np.array(self.arm.move_group.get_jacobian_matrix(self.arm.move_group.get_current_joint_values()))
+        return np.array(self.move_group.get_jacobian_matrix(self.q))
     @property
     def jacobe(self):
         """Returns the arm Jacobian wrt. the end-eff frame (arm_tool_link).
         Matrix is 6x7. Each row shows how the joints will affect spatial velocity [vx vy vz wx wy wz]."""
         return sm.base.tr2jac(self.current_pose.inv().data[0]) @ self.jacobo
+    @property
+    def controller(self):
+        """Returns the currently running arm controller."""
+        controllers=get_controllers()
+        # There should only be one arm joint controller running. I
+        # think ROS prevents multiple from running so we don't need to
+        # check.
+        for ctrl in controllers.controller:
+            if ctrl.name in self.all_arm_joint_controllers and ctrl.state=="running":
+                return ctrl.name
+        return None
     def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0, start_state=None):
         '''Plan the given trajectory.
         trajectory: a list of SE3 poses denoting the waypoints.
@@ -370,28 +415,9 @@ class TiagoArm():
         plans=self.postprocess_plan(plans)
         return plans
     def postprocess_plan(self, plan):
-        '''Postprocess plan.'''
-        # This class does no post-processing.
-        return plan
-    def execute_plan(self, plan):
-        '''Execute plan.'''
-        self.move_group.execute(plan, wait=True)
-    def RRMC(poses):
-        """Use resolved-rate motion control (velocity control) to take the end effector through the given poses.
-
-        poses: list of SE3 poses as the waypoints."""
-        pass
-
-class RetimingTiagoArm(TiagoArm):
-    "This version runs RETIMING_ALGORITHM on the computed plan to smooth the trajectory."
-    def __init__(self, retiming_algorithm: str):
-        assert retiming_algorithm in ["iterative_time_parametrization",
-                                      "iterative_spline_parametrization",
-                                      "time_optimal_trajectory_generation"]
-        self.retiming_algorithm=retiming_algorithm
-        super().__init__()
-    def postprocess_plan(self, plan):
-        '''Postprocess plan.'''
+        '''Postprocess plan by running the retiming algorithm to smoothen it.'''
+        if self.retiming_algorithm is None:
+            return plan
         ref_state=self.robot.get_current_state()
         retimed_plan=self.move_group.retime_trajectory(ref_state,
                                                        plan,
@@ -399,7 +425,49 @@ class RetimingTiagoArm(TiagoArm):
                                                        acceleration_scaling_factor=1.0,
                                                        algorithm=self.retiming_algorithm)
         return retimed_plan
-
+    def execute_plan(self, plan):
+        '''Execute plan.'''
+        self.move_group.execute(plan, wait=True)
+    def switch_controller(self, to: str):
+        """Switch to a controller.
+        to: controller to switch to. Should be one of those listed in self.all_arm_joint_controllers."""
+        assert to in self.all_arm_joint_controllers, f"Switching to the arm controller {to} is invalid."
+        rospy.wait_for_service("/controller_manager/switch_controller", timeout=rospy.Duration(secs=1))
+        change_service=rospy.ServiceProxy("/controller_manager/switch_controller", SwitchController)
+        return change_service([to], [self.controller], 2)
+    def velocity_cmd(self, qd):
+        """Send a velocity command. Controller needs to be set to
+        arm_forward_velocity_controller for this to have an effect.
+        qd: Joint velocities. array of length 7.
+        """
+        msg=Float64MultiArray()
+        msg.layout=MultiArrayLayout()
+        msg.layout.data_offset=0
+        dim=MultiArrayDimension()
+        dim.size=7
+        dim.stride=0
+        msg.layout.dim=[dim]
+        msg.data=qd
+        self._velocity_pub.publish(msg)
+    def velocity_stop(self):
+        "Command the arm joints to have zero velocity."
+        self.velocity_cmd([0]*7)
+    def RRMC(self, poses):
+        """Use resolved-rate motion control (velocity control) to take the end effector through the given poses.
+        poses: list of SE3 poses as the waypoints."""
+        if self.controller != "arm_forward_velocity_controller":
+            self.switch_controller("arm_forward_velocity_controller")
+        self.stop=False # clear the stop flag
+        for waypoint in poses:
+            arrived=False
+            print("next point:")
+            print(waypoint)
+            while not arrived and not self.stop:
+                v, arrived=rtb.p_servo(self.current_pose, waypoint, gain=0.5, threshold=0.01)
+                qd=np.linalg.pinv(self.jacobe) @ v
+                # send it
+                self.velocity_cmd(qd)
+        self.velocity_stop()
 
 class TiagoGripper():
     "Functions relating to the gripper."
@@ -409,7 +477,7 @@ class TiagoGripper():
         '''
         call a grasp.
         '''
-        rospy.wait_for_service('/parallel_gripper_controller/grasp')
+        rospy.wait_for_service('/parallel_gripper_controller/grasp', timeout=rospy.Duration(secs=1))
         try:
             grasp_service = rospy.ServiceProxy('/parallel_gripper_controller/grasp', Empty)
             grasp_service()
@@ -422,7 +490,7 @@ class TiagoGripper():
         '''
         call a release.
         '''
-        rospy.wait_for_service('/parallel_gripper_controller/release')
+        rospy.wait_for_service('/parallel_gripper_controller/release', timeout=rospy.Duration(secs=1))
         try:
             release_service = rospy.ServiceProxy('/parallel_gripper_controller/release', Empty)
             release_service()
@@ -548,3 +616,17 @@ def rotate_se3(pose: sm.SE3, axis: str, angle: float) -> sm.SE3:
     pose=pose*rot
     pose.t=t
     return pose
+
+def get_controllers():
+    """Return list of all controllers on the robot, with details on whether they're running.
+    See the ListControllers service type for the structure."""
+    # all the controllers that I can currently see on the robot:
+    # arm_velocity_trajectory_controller, arm_impedance_controller,
+    # gripper_current_limit_controller, torso_controller,
+    # gripper_controller, joint_state_controller,
+    # arm_forward_velocity_controller, head_controller,
+    # arm_controller, arm_current_limit_controller,
+    # mobile_base_controller, wheels_current_limit_controller
+    rospy.wait_for_service("/controller_manager/list_controllers", timeout=rospy.Duration(secs=1))
+    controller_service=rospy.ServiceProxy("/controller_manager/list_controllers",ListControllers)
+    return controller_service()
