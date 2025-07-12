@@ -342,7 +342,7 @@ class TiagoArm():
     @property
     def q(self):
         "Return the current joint configuration, a 7-element array."
-        return np.array(self.move_group.get_current_joint_values())
+        return self.move_group.get_current_joint_values()
     @property
     def current_pose(self) -> sm.SE3:
         "The current pose of the arm end effector (arm_tool_link) as SE3 wrt the planning frame (base_footprint)."
@@ -452,7 +452,7 @@ class TiagoArm():
     def velocity_stop(self):
         "Command the arm joints to have zero velocity."
         self.velocity_cmd([0]*7)
-    def RRMC(self, poses):
+    def RRMC(self, poses, gain=1):
         """Use resolved-rate motion control (velocity control) to take the end effector through the given poses.
         poses: list of SE3 poses as the waypoints."""
         if self.controller != "arm_forward_velocity_controller":
@@ -463,7 +463,7 @@ class TiagoArm():
             print("next point:")
             print(waypoint)
             while not arrived and not self.stop:
-                v, arrived=rtb.p_servo(self.current_pose, waypoint, gain=0.5, threshold=0.01)
+                v, arrived=rtb.p_servo(self.current_pose, waypoint, gain=gain, threshold=0.01)
                 qd=np.linalg.pinv(self.jacobe) @ v
                 # send it
                 self.velocity_cmd(qd)
