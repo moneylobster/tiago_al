@@ -309,9 +309,20 @@ class TiagoArm():
         "The planning frame used by moveit."
         self.move_group.set_num_planning_attempts(200)
         self.move_group.set_planning_time(4)
+    @property
     def current_pose(self) -> sm.SE3:
-        "Returns the current pose of the arm end effector (arm_tool_link) as SE3 wrt the planning frame (base_footprint)."
+        "The current pose of the arm end effector (arm_tool_link) as SE3 wrt the planning frame (base_footprint)."
         return rospose_to_se3(self.move_group.get_current_pose())
+    @property
+    def jacobo(self):
+        """Returns the arm Jacobian wrt. the planning frame (base_footprint).
+        Matrix is 6x7. Each row shows how the joints will affect spatial velocity [vx vy vz wx wy wz]."""
+        return np.array(self.arm.move_group.get_jacobian_matrix(self.arm.move_group.get_current_joint_values()))
+    @property
+    def jacobe(self):
+        """Returns the arm Jacobian wrt. the end-eff frame (arm_tool_link).
+        Matrix is 6x7. Each row shows how the joints will affect spatial velocity [vx vy vz wx wy wz]."""
+        return sm.base.tr2jac(self.current_pose.inv().data[0]) @ self.jacobo
     def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0, start_state=None):
         '''Plan the given trajectory.
         trajectory: a list of SE3 poses denoting the waypoints.
