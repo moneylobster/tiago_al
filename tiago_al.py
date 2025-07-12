@@ -342,7 +342,7 @@ class TiagoArm():
     @property
     def q(self):
         "Return the current joint configuration, a 7-element array."
-        return np.array(self.arm.move_group.get_current_joint_values())
+        return np.array(self.move_group.get_current_joint_values())
     @property
     def current_pose(self) -> sm.SE3:
         "The current pose of the arm end effector (arm_tool_link) as SE3 wrt the planning frame (base_footprint)."
