@@ -341,7 +341,7 @@ class TiagoArm():
         self._velocity_pub=rospy.Publisher("/arm_forward_velocity_controller/command", Float64MultiArray, queue_size=1)
         
         if velocity_controller is None:
-            self.velocity_controller=vc.PIDController(Kp=1.0, Ki=1e-3)
+            self.velocity_controller=vc.PIDController(Kp=2.0, Ki=5e-2)
         else:
             self.velocity_controller=velocity_controller
     @property
@@ -470,6 +470,7 @@ class TiagoArm():
             self.velocity_controller.reset()
             while not arrived and not self.stop:
                 v, arrived=self.velocity_controller.step(self.current_pose, waypoint)
+                print(f"Current error: {np.sum(np.abs(vc.calculate_error(self.current_pose, waypoint, 0.0)[0]))}", end="\r")
                 qd=np.linalg.pinv(self.jacobe) @ v
                 # send it
                 self.velocity_cmd(qd)
