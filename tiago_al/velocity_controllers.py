@@ -33,7 +33,7 @@ class PController(VelocityController):
         self.gain=gain
         self.threshold=threshold
     def step(self, wTe, wTep):
-        err, arrived=self.calculate_error(wTe, wTep, self.threshold)
+        err, arrived=calculate_error(wTe, wTep, self.threshold)
         k = self.gain*np.eye(6)
         v = k@err
         return v, arrived
@@ -53,7 +53,7 @@ class PIDController(VelocityController):
         "Resets the I term. Calling before changing SP is recommended."
         self.integral_memory=0
     def step(self, wTe, wTep):
-        err, arrived=self.calculate_error(wTe, wTep, self.threshold)
+        err, arrived=calculate_error(wTe, wTep, self.threshold)
         self.integral_memory=np.clip(self.integral_memory+err, -self.integral_max, self.integral_max)
         k = self.Kp*np.eye(6) + self.Ki*self.integral_memory + self.Kd*(err-self.err_prev)
         v = k@err
