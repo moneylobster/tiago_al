@@ -12,7 +12,7 @@ def calculate_error(wTe, wTep, threshold):
     threshold: how low the error should be to mark as arrived. float.
     """
     # pose difference
-    eTep=np.linalg.inv(wTe) @ wTep
+    eTep=np.linalg.inv(wTe.A) @ wTep.A
     e=np.empty(6)
     # translational error
     e[:3]=eTep[:3,3]
