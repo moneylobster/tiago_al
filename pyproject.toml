@@ -6,6 +6,5 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "numpy",
-    "roboticstoolbox-python>=1.1.1",
     "spatialmath-python",
 ]

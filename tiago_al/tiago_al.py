@@ -7,7 +7,6 @@ import subprocess
 
 import numpy as np
 import spatialmath as sm
-import roboticstoolbox as rtb
 
 # ros stuff
 import rospy
