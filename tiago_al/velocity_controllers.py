@@ -51,11 +51,19 @@ class PIDController(VelocityController):
         self.err_prev=None
         "Error value from previous timestep. Used to calculate D term."
     def reset(self):
-        "Resets the I term. Calling before changing SP is recommended."
+        "Resets the I and D term. Calling before changing SP is recommended."
         self.integral_memory=0
+        self.err_prev=None
     def step(self, wTe, wTep):
         err, arrived=calculate_error(wTe, wTep, self.threshold)
         self.integral_memory=np.clip(self.integral_memory+err, -self.integral_max, self.integral_max)
-        k = self.Kp*np.eye(6) + self.Ki*self.integral_memory + self.Kd*(err-self.err_prev)
+
+        if self.err_prev is None:
+            k = self.Kp*np.eye(6) + self.Ki*self.integral_memory
+        else:
+            k = self.Kp*np.eye(6) + self.Ki*self.integral_memory + self.Kd*(err-self.err_prev)
         v = k@err
+
+        self.err_prev=err
+        
         return v, arrived
