@@ -45,6 +45,7 @@ class PIDController(VelocityController):
         self.Ki=Ki
         self.Kd=Kd
         self.integral_max=0
+        self.threshold=threshold
         self.integral_memory=0
         "Used as an accumulator for the I term."
         self.err_prev=None
