@@ -3,7 +3,7 @@ import numpy as np
 import spatialmath as sm
 
 
-def calculate_error(self, wTe, wTep, threshold):
+def calculate_error(wTe, wTep, threshold):
     """
     Calculate the positional error as a 6-element vector [tx ty tz rx ry rz]. Ported from roboticstoolbox-python (the p_servo function).
     
