@@ -22,7 +22,10 @@ def calculate_error(self, wTe, wTep, threshold):
     return e, arrived
 
 class VelocityController():
-    pass
+    def reset(self):
+        pass
+    def step(self):
+        pass
     
 class PController(VelocityController):
     """Apply a P term to error. Resolved-rate motion control."""

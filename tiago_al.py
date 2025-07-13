@@ -1,18 +1,21 @@
-### Tiago ROS abstraction layer
-# to write stuff in python without worrying about the ROS parts too much
+'''Tiago ROS abstraction layer
+to write stuff in python without worrying about the ROS parts too much'''
+
+import velocity_controllers
+
+import subprocess
 
 import numpy as np
 import spatialmath as sm
 import roboticstoolbox as rtb
 
-import subprocess
-
+# ros stuff
 import rospy
 import actionlib
 import moveit_commander
 import tf2_ros
 from cv_bridge import CvBridge
-
+# ros messages
 from std_msgs.msg import Float64MultiArray, MultiArrayLayout, MultiArrayDimension
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, JointState, LaserScan
 from sensor_msgs.point_cloud2 import read_points
@@ -23,14 +26,12 @@ from control_msgs.msg import JointTrajectoryControllerState
 from moveit_msgs.msg import RobotState
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
-
-from pal_common_msgs.msg import DisableAction, DisableGoal
-
-from std_srvs.srv import Empty
-from controller_manager_msgs.srv import SwitchController, ListControllers
-
 # tiago-specific messages
 from pal_statistics_msgs.msg import StatisticsValues
+from pal_common_msgs.msg import DisableAction, DisableGoal
+# services
+from std_srvs.srv import Empty
+from controller_manager_msgs.srv import SwitchController, ListControllers
 
 ################################################################################
 ## TIAGO
@@ -308,7 +309,7 @@ class TiagoHead():
 ## ARM
 class TiagoArm():
     "Functions relating to Tiago's arm: motion planning, etc."
-    def __init__(self, retiming_algorithm: str):
+    def __init__(self, retiming_algorithm: str, velocity_controller=None):
         self.robot=moveit_commander.RobotCommander()
         self.move_group=moveit_commander.MoveGroupCommander("arm")
         "docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.html"
@@ -339,6 +340,11 @@ class TiagoArm():
         self.stop=False
         "Flag to determine whether arm should stop moving. Currently only works for the velocity controller."
         self._velocity_pub=rospy.Publisher("/arm_forward_velocity_controller/command", Float64MultiArray, queue_size=1)
+        
+        if velocity_controller is None:
+            self.velocity_controller=velocity_controllers.PIDController(Kp=1.0, Ki=1e-3)
+        else:
+            self.velocity_controller=velocity_controller
     @property
     def q(self):
         "Return the current joint configuration, a 7-element array."
@@ -452,7 +458,7 @@ class TiagoArm():
     def velocity_stop(self):
         "Command the arm joints to have zero velocity."
         self.velocity_cmd([0]*7)
-    def RRMC(self, poses, gain=1):
+    def RRMC(self, poses):
         """Use resolved-rate motion control (velocity control) to take the end effector through the given poses.
         poses: list of SE3 poses as the waypoints."""
         if self.controller != "arm_forward_velocity_controller":
@@ -462,8 +468,9 @@ class TiagoArm():
             arrived=False
             print("next point:")
             print(waypoint)
+            self.velocity_controller.reset()
             while not arrived and not self.stop:
-                v, arrived=rtb.p_servo(self.current_pose, waypoint, gain=gain, threshold=0.01)
+                v, arrived=self.velocity_controller.step(self.current_pose, waypoint)
                 qd=np.linalg.pinv(self.jacobe) @ v
                 # send it
                 self.velocity_cmd(qd)
