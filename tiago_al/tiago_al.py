@@ -1,7 +1,7 @@
 '''Tiago ROS abstraction layer
 to write stuff in python without worrying about the ROS parts too much'''
 
-import velocity_controllers
+import tiago_al.velocity_controllers as vc
 
 import subprocess
 
@@ -342,7 +342,7 @@ class TiagoArm():
         self._velocity_pub=rospy.Publisher("/arm_forward_velocity_controller/command", Float64MultiArray, queue_size=1)
         
         if velocity_controller is None:
-            self.velocity_controller=velocity_controllers.PIDController(Kp=1.0, Ki=1e-3)
+            self.velocity_controller=vc.PIDController(Kp=1.0, Ki=1e-3)
         else:
             self.velocity_controller=velocity_controller
     @property
