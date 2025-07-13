@@ -356,7 +356,7 @@ class TiagoArm():
     def jacobe(self):
         """Returns the arm Jacobian wrt. the end-eff frame (arm_tool_link).
         Matrix is 6x7. Each row shows how the joints will affect spatial velocity [vx vy vz wx wy wz]."""
-        return sm.base.tr2jac(self.current_pose.inv().data[0]) @ self.jacobo
+        return sm.base.tr2jac(self.current_pose.inv().A) @ self.jacobo
     @property
     def controller(self):
         """Returns the currently running arm controller."""
