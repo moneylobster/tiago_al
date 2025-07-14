@@ -459,12 +459,20 @@ class TiagoArm():
         self.velocity_cmd([0]*7)
     def RRMC(self, poses):
         """Use resolved-rate motion control (velocity control) to take the end effector through the given poses.
-        poses: list of SE3 poses as the waypoints."""
+        Returns endeff poses recorded during movement (wrt planning frame).
+
+        The recording format is as follows: [[[t0, p0]], [[t1.1, p1.1], [t1.2, p1.2] ...], [[t2.1, p2.1], [t2.2, p2.2], ...], ...]
+        Where px.y is the y'th pose recorded when going toward the x'th waypoint. tx.y is the corresponding time.
+        
+        poses: list of SE3 poses as the waypoints. 
+        """
         if self.controller != "arm_forward_velocity_controller":
             self.switch_controller("arm_forward_velocity_controller")
         self.stop=False # clear the stop flag
+        recording=[[[rospy.get_time(), self.current_pose]]] # to record poses
         for waypoint in poses:
             arrived=False
+            segment_recording=[] # to record poses for the current segment
             print("next point:")
             print(waypoint)
             self.velocity_controller.reset()
@@ -474,7 +482,11 @@ class TiagoArm():
                 qd=np.linalg.pinv(self.jacobe) @ v
                 # send it
                 self.velocity_cmd(qd)
+                # save current pose
+                segment_recording.append([rospy.get_time(), self.current_pose])
+            recording.append(segment_recording) # save poses for the segment
         self.velocity_stop()
+        return recording
 
 class TiagoGripper():
     "Functions relating to the gripper."
