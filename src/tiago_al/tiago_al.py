@@ -1,11 +1,14 @@
 '''Tiago ROS abstraction layer
 to write stuff in python without worrying about the ROS parts too much'''
 
+
 import tiago_al.velocity_controllers as vc
 
 import subprocess
+from typing import Any, Union
 
 import numpy as np
+from numpy.typing import ArrayLike
 import spatialmath as sm
 
 # ros stuff
@@ -22,7 +25,7 @@ from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped, Twist, Pose, PoseStamped
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from control_msgs.msg import JointTrajectoryControllerState
-from moveit_msgs.msg import RobotState
+from moveit_msgs.msg import RobotState, RobotTrajectory
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 # tiago-specific messages
@@ -38,43 +41,43 @@ from controller_manager_msgs.srv import SwitchController, ListControllers
 class Tiago():
     "A class to act as an interface to Tiago's functionality"
     def __init__(self,
-                 transforms=True,
-                 stats=True,
-                 laser=True,
-                 torso=True):
+                 transforms:bool=True,
+                 stats:bool=True,
+                 laser:bool=True,
+                 torso:bool=True):
         # start a ros node
         rospy.init_node("tiago_al", anonymous=True)
         ## Submodules
         # classes relating exclusively to individual components
-        self.head=TiagoHead()
+        self.head:TiagoHead=TiagoHead()
         "Subclass for the head of the robot. Includes camera data."
-        self.arm=TiagoArm("time_optimal_trajectory_generation")
+        self.arm:TiagoArm=TiagoArm("time_optimal_trajectory_generation")
         "Subclass for the arm of the robot. Includes motion planning stuff."
-        self.gripper=TiagoGripper()
+        self.gripper:TiagoGripper=TiagoGripper()
         "Subclass for things relating to gripper control."
         # transforms
-        if transforms is not None:
+        if transforms:
             self.tfbuffer = tf2_ros.Buffer()
             self.tflistener = tf2_ros.TransformListener(self.tfbuffer)
             self.tf_pub=rospy.Publisher("/tf_static", TFMessage, queue_size=10)
         # motor stats
-        if stats is not None:
+        if stats:
             self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self._stats_callback, queue_size=10)
-            self.stats={}
+            self.stats:dict[str,Any]={}
             "A dictionary that holds temperature, position, current, etc. information for all motors in the robot."  
         #sensors
-        if laser is not None:
+        if laser:
             self._laser_sub=rospy.Subscriber("/scan", LaserScan,
                                              self._laser_callback, queue_size=10)
-            self.laser = None
+            self.laser:Union[list[Any], None] = None
             "Results of planar laser scan as [angle, distance]. Use laser_cartesian to access the points in a cartesian frame."
-            self.laser_frame = "base_laser_link"
+            self.laser_frame:str = "base_laser_link"
             "Reference frame for the laser scanner."
         #actuators
-        if torso is not None:
+        if torso:
             self.torso_sub = rospy.Subscriber("/torso_controller/state", JointTrajectoryControllerState,
                                               self._torso_callback, queue_size=10)
-            self.torso = None
+            self.torso:Union[float,None] = None
             "Torso position."
         self.torso_pub = rospy.Publisher("/torso_controller/command", JointTrajectory, queue_size=10)
         self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
@@ -127,7 +130,7 @@ class Tiago():
         "Move the robot to home configuration."
         self.play_motion("home")
 
-    def say(self, words: str, language="en"):
+    def say(self, words: str, language:str="en"):
         """Speak using espeak-ng.
         
         words: What to say
@@ -153,7 +156,7 @@ class Tiago():
         self.torso_pub.publish(torso_msg)
         rospy.sleep(1)
 
-    def move(self, x=0, y=0, z=0, rx=0, ry=0, rz=0):
+    def move(self, x:float=0, y:float=0, z:float=0, rx:float=0, ry:float=0, rz:float=0):
         """Move Tiago's base with the specified velocity.
 
         +x is forward.
@@ -190,12 +193,13 @@ class Tiago():
             rospy.logerr("[MOVE_TO] Couldn't access move_base server.")
             return False
 
-    def is_move_done(self):
+    def is_move_done(self) -> bool:
         """Returns move_base server state, that is, whether the pose commanded by move_to has been reached."""
         if self.move_base_client.wait_for_result():
             return self.move_base_client.get_result()
         else:
             rospy.logerr("[IS_MOVE_DONE] Move_base server can't be reached!")
+            return False
 
     def _stats_callback(self, data):
         names=[
@@ -223,13 +227,15 @@ class Tiago():
         angles=np.arange(data.angle_min, data.angle_max, data.angle_increment)
         self.laser=[angles, data.ranges[:len(angles)]]
     @property
-    def laser_cartesian(self):
+    def laser_cartesian(self)->Union[ArrayLike, None]:
         "Results of the planar laser scan as an array of 2D points according to base frame (+x forward, +y left)."
-        cossin=np.array([np.cos(self.laser[0]), np.sin(self.laser[0])])
-        return (cossin*self.laser[1][len(self.laser[0,:])]).T
+        if self.laser is not None:
+            cossin=np.array([np.cos(self.laser[0]), np.sin(self.laser[0])])
+            return (cossin*self.laser[1][len(self.laser[0,:])]).T
+        else:
+            return None
     def quit(self):
-        "Safely stop/shutdown Tiago. (TODO) Also stops movements if velocity controller is active."
-        self.board_detector.running=False
+        "Safely stop/shutdown Tiago. Also stops movements if velocity controller is active."
         if self.arm.controller=="arm_forward_velocity_controller":
             self.arm.stop=True
             self.arm.velocity_stop()
@@ -240,24 +246,24 @@ class Tiago():
 class TiagoHead():
     "Functions relating to Tiago's head. Cameras, motors etc."
     def __init__(self,
-                 rgb=True,
-                 depth=True,
-                 pointcloud=True,
-                 caminfo=True,
-                 motor=True):
+                 rgb:bool=True,
+                 depth:bool=True,
+                 pointcloud:bool=True,
+                 caminfo:bool=True,
+                 motor:bool=True):
         ## Cameras
-        self.camera_frame="xtion_rgb_optical_frame"
+        self.camera_frame:str="xtion_rgb_optical_frame"
         "The frame used for the camera"
         
         # RGBD Camera
         self._bridge = CvBridge()
-        if rgb is not None:
+        if rgb:
             self._rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
                                              self._rgb_callback, queue_size=10)
-        if depth is not None:
+        if depth:
             self._depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
                                                self._depth_callback, queue_size=10)
-        if pointcloud is not None:
+        if pointcloud:
             self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
                                                   self._pointcloud_callback, queue_size=10)
         self.rgb = None
@@ -270,17 +276,17 @@ class TiagoHead():
         "The name of the frame that the pointcloud is relative to."
         
         # Camera intrinsics
-        if caminfo is not None:
+        if caminfo:
             self._cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
                                                   self._cam_info_callback, queue_size=10)
-        self.cam_raw_intrinsic = None
+        self.cam_raw_intrinsic:Union[ArrayLike,None] = None
         "Camera intrinsic matrix."
         
         ## Actuators
-        if motor is not None:
+        if motor:
             self._motor_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState,
                                                self._motor_callback, queue_size=10)
-        self.motor = None
+        self.motor:Union[list[float],None] = None
         "Motor positions, 2 element list. The first one is yaw, the second is pitch."
         self._motor_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
 
@@ -308,7 +314,7 @@ class TiagoHead():
 ## ARM
 class TiagoArm():
     "Functions relating to Tiago's arm: motion planning, etc."
-    def __init__(self, retiming_algorithm: str, velocity_controller=None):
+    def __init__(self, retiming_algorithm: str, velocity_controller:Union[vc.VelocityController,None]=None):
         self.robot=moveit_commander.RobotCommander()
         self.move_group=moveit_commander.MoveGroupCommander("arm")
         "docs: https://docs.ros.org/en/api/moveit_commander/html/classmoveit__commander_1_1move__group_1_1MoveGroupCommander.html"
@@ -323,47 +329,47 @@ class TiagoArm():
                                       "iterative_spline_parametrization",
                                       "time_optimal_trajectory_generation",
                                       None], f"Retiming algorithm {retiming_algorithm} is not supported."
-        self.retiming_algorithm=retiming_algorithm
+        self.retiming_algorithm:str=retiming_algorithm
 
         # TODO: it's possible to do this a bit better by checking the
         # claimed_resources part of the listcontrollers response and
         # seeing if they contain all arm joints instead of hardcoding
         # possible controller names.
-        self.all_arm_joint_controllers=[
+        self.all_arm_joint_controllers:list[str]=[
             "arm_velocity_trajectory_controller",
             "arm_impedance_controller",
             "arm_forward_velocity_controller",
             "arm_controller"]
         "Controllers that can be used with the arm. Call switch_controller to use them."
 
-        self.stop=False
+        self.stop:bool=False
         "Flag to determine whether arm should stop moving. Currently only works for the velocity controller."
         self._velocity_pub=rospy.Publisher("/arm_forward_velocity_controller/command", Float64MultiArray, queue_size=1)
         
         if velocity_controller is None:
-            self.velocity_controller=vc.PIDController(Kp=2.0, Ki=0.1, integral_max=2.0, threshold=0.05)
+            self.velocity_controller:vc.VelocityController=vc.PIDController(Kp=2.0, Ki=0.1, integral_max=2.0, threshold=0.05)
         else:
             self.velocity_controller=velocity_controller
     @property
-    def q(self):
-        "Return the current joint configuration, a 7-element array."
+    def q(self) -> list[float]:
+        "Return the current joint configuration, a 7-element list."
         return self.move_group.get_current_joint_values()
     @property
     def current_pose(self) -> sm.SE3:
         "The current pose of the arm end effector (arm_tool_link) as SE3 wrt the planning frame (base_footprint)."
         return rospose_to_se3(self.move_group.get_current_pose())
     @property
-    def jacobo(self):
+    def jacobo(self) -> ArrayLike:
         """Returns the arm Jacobian wrt. the planning frame (base_footprint).
         Matrix is 6x7. Each row shows how the joints will affect spatial velocity [vx vy vz wx wy wz]."""
         return np.array(self.move_group.get_jacobian_matrix(self.q))
     @property
-    def jacobe(self):
+    def jacobe(self) -> ArrayLike:
         """Returns the arm Jacobian wrt. the end-eff frame (arm_tool_link).
         Matrix is 6x7. Each row shows how the joints will affect spatial velocity [vx vy vz wx wy wz]."""
         return sm.base.tr2jac(self.current_pose.inv().A) @ self.jacobo
     @property
-    def controller(self):
+    def controller(self) -> Union[str, None]:
         """Returns the currently running arm controller."""
         controllers=get_controllers()
         # There should only be one arm joint controller running. I
@@ -373,7 +379,7 @@ class TiagoArm():
             if ctrl.name in self.all_arm_joint_controllers and ctrl.state=="running":
                 return ctrl.name
         return None
-    def plan_cartesian_trajectory(self, trajectory, eef_step=0.001, jump_threshold=0.0, start_state=None):
+    def plan_cartesian_trajectory(self, trajectory:list[sm.SE3], eef_step:float=0.001, jump_threshold:float=0.0, start_state:RobotState=None) -> tuple[RobotTrajectory, float]:
         '''Plan the given trajectory.
         trajectory: a list of SE3 poses denoting the waypoints.
         eef_step: view move_group documentation (likely the interpolation increment)
@@ -391,7 +397,7 @@ class TiagoArm():
         plan=self.postprocess_plan(plan)
         print(f"[PLAN_CARTESIAN_TRAJECTORY] Planning complete, successfully planned {fraction} of the path.")
         return plan, fraction
-    def plan_to_pose(self, pose: sm.SE3):
+    def plan_to_pose(self, pose: sm.SE3) -> tuple[list[Any], float]:
         '''Plan to the given pose.
         POSE is an SE3 pose.'''
         self.move_group.set_pose_target(se3_to_rospose(pose))
@@ -400,7 +406,7 @@ class TiagoArm():
         if not success:
             print(f"[PLAN_TO_POSE] Planning failed. Error code {error}")
         return (plan, success)
-    def plan_to_poses(self, poses, start_state=None):
+    def plan_to_poses(self, poses:list[sm.SE3], start_state:RobotState=None) -> RobotTrajectory:
         '''Plan to a sequential trajectory of POSES.
         poses: a list of SE3 poses.
         start_state: optional starting RobotState, default is the current state.'''
@@ -419,7 +425,7 @@ class TiagoArm():
             plans=merge_trajectories(plans,plan)
         plans=self.postprocess_plan(plans)
         return plans
-    def postprocess_plan(self, plan):
+    def postprocess_plan(self, plan:RobotTrajectory)->RobotTrajectory:
         '''Postprocess plan by running the retiming algorithm to smoothen it.'''
         if self.retiming_algorithm is None:
             return plan
@@ -430,7 +436,7 @@ class TiagoArm():
                                                        acceleration_scaling_factor=1.0,
                                                        algorithm=self.retiming_algorithm)
         return retimed_plan
-    def execute_plan(self, plan):
+    def execute_plan(self, plan:RobotTrajectory):
         '''Execute plan.'''
         self.move_group.execute(plan, wait=True)
     def switch_controller(self, to: str):
@@ -440,7 +446,7 @@ class TiagoArm():
         rospy.wait_for_service("/controller_manager/switch_controller", timeout=rospy.Duration(secs=1))
         change_service=rospy.ServiceProxy("/controller_manager/switch_controller", SwitchController)
         return change_service([to], [self.controller], 2)
-    def velocity_cmd(self, qd):
+    def velocity_cmd(self, qd:ArrayLike):
         """Send a velocity command. Controller needs to be set to
         arm_forward_velocity_controller for this to have an effect.
         qd: Joint velocities. array of length 7.
@@ -457,7 +463,7 @@ class TiagoArm():
     def velocity_stop(self):
         "Command the arm joints to have zero velocity."
         self.velocity_cmd([0]*7)
-    def RRMC(self, poses):
+    def RRMC(self, poses:list[sm.SE3]):
         """Use resolved-rate motion control (velocity control) to take the end effector through the given poses.
         Returns endeff poses recorded during movement (wrt planning frame).
 
@@ -522,14 +528,14 @@ class TiagoGripper():
 ################################################################################
 ## convenience funcs
 
-def merge_trajectories(traj1, traj2):
+def merge_trajectories(traj1:RobotTrajectory, traj2:RobotTrajectory):
     "Merge RobotTrajectories traj1 and traj2 together. Modifies traj1."
     if traj1 is None:
         return traj2
     traj1.joint_trajectory.points = traj1.joint_trajectory.points+traj2.joint_trajectory.points
     return traj1
 
-def robot_state_from_traj(traj) -> RobotState:
+def robot_state_from_traj(traj:RobotTrajectory) -> RobotState:
     "Returns the RobotState that the robot will get to at the end of a RobotTrajectory traj."
     joints=traj.joint_trajectory.points[-1].positions
     joint_state=JointState()
@@ -610,7 +616,7 @@ def stamp_pose(pose: Pose, frame_id: str) -> PoseStamped:
     posestamped.header.frame_id=frame_id
     return posestamped
 
-def find_perp_vector(vector):
+def find_perp_vector(vector:ArrayLike)->ArrayLike:
     """Find a perpendicular vector to a vector.
 
     Ref:
@@ -636,7 +642,7 @@ def rotate_se3(pose: sm.SE3, axis: str, angle: float) -> sm.SE3:
     pose.t=t
     return pose
 
-def get_controllers():
+def get_controllers()->ListControllers:
     """Return list of all controllers on the robot, with details on whether they're running.
     See the ListControllers service type for the structure."""
     # all the controllers that I can currently see on the robot:

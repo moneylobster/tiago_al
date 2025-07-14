@@ -24,7 +24,7 @@ def calculate_error(wTe, wTep, threshold):
 class VelocityController():
     def reset(self):
         pass
-    def step(self):
+    def step(self, wTe, wTep):
         pass
     
 class PController(VelocityController):
