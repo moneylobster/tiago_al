@@ -5,7 +5,7 @@ to write stuff in python without worrying about the ROS parts too much'''
 import tiago_al.velocity_controllers as vc
 
 import subprocess
-from typing import Any, Union, List, Dict
+from typing import Any, Union, List, Dict, Tuple
 import numpy as np
 from numpy.typing import ArrayLike
 import spatialmath as sm
@@ -378,7 +378,7 @@ class TiagoArm():
             if ctrl.name in self.all_arm_joint_controllers and ctrl.state=="running":
                 return ctrl.name
         return None
-    def plan_cartesian_trajectory(self, trajectory:List[sm.SE3], eef_step:float=0.001, jump_threshold:float=0.0, start_state:RobotState=None) -> tuple[RobotTrajectory, float]:
+    def plan_cartesian_trajectory(self, trajectory:List[sm.SE3], eef_step:float=0.001, jump_threshold:float=0.0, start_state:RobotState=None) -> Tuple[RobotTrajectory, float]:
         '''Plan the given trajectory.
         trajectory: a list of SE3 poses denoting the waypoints.
         eef_step: view move_group documentation (likely the interpolation increment)
@@ -396,7 +396,7 @@ class TiagoArm():
         plan=self.postprocess_plan(plan)
         print(f"[PLAN_CARTESIAN_TRAJECTORY] Planning complete, successfully planned {fraction} of the path.")
         return plan, fraction
-    def plan_to_pose(self, pose: sm.SE3) -> tuple[List[Any], float]:
+    def plan_to_pose(self, pose: sm.SE3) -> Tuple[List[Any], float]:
         '''Plan to the given pose.
         POSE is an SE3 pose.'''
         self.move_group.set_pose_target(se3_to_rospose(pose))
