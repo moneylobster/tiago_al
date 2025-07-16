@@ -5,8 +5,7 @@ to write stuff in python without worrying about the ROS parts too much'''
 import tiago_al.velocity_controllers as vc
 
 import subprocess
-from typing import Any, Union
-
+from typing import Any, Union, List, Dict
 import numpy as np
 from numpy.typing import ArrayLike
 import spatialmath as sm
@@ -63,13 +62,13 @@ class Tiago():
         # motor stats
         if stats:
             self.stats_sub = rospy.Subscriber("/motors_statistics/values", StatisticsValues, self._stats_callback, queue_size=10)
-            self.stats:dict[str,Any]={}
+            self.stats:Dict[str,Any]={}
             "A dictionary that holds temperature, position, current, etc. information for all motors in the robot."  
         #sensors
         if laser:
             self._laser_sub=rospy.Subscriber("/scan", LaserScan,
                                              self._laser_callback, queue_size=10)
-            self.laser:Union[list[Any], None] = None
+            self.laser:Union[List[Any], None] = None
             "Results of planar laser scan as [angle, distance]. Use laser_cartesian to access the points in a cartesian frame."
             self.laser_frame:str = "base_laser_link"
             "Reference frame for the laser scanner."
@@ -286,7 +285,7 @@ class TiagoHead():
         if motor:
             self._motor_sub = rospy.Subscriber("/head_controller/state", JointTrajectoryControllerState,
                                                self._motor_callback, queue_size=10)
-        self.motor:Union[list[float],None] = None
+        self.motor:Union[List[float],None] = None
         "Motor positions, 2 element list. The first one is yaw, the second is pitch."
         self._motor_pub = rospy.Publisher("/head_controller/command", JointTrajectory, queue_size=10)
 
@@ -335,7 +334,7 @@ class TiagoArm():
         # claimed_resources part of the listcontrollers response and
         # seeing if they contain all arm joints instead of hardcoding
         # possible controller names.
-        self.all_arm_joint_controllers:list[str]=[
+        self.all_arm_joint_controllers:List[str]=[
             "arm_velocity_trajectory_controller",
             "arm_impedance_controller",
             "arm_forward_velocity_controller",
@@ -351,7 +350,7 @@ class TiagoArm():
         else:
             self.velocity_controller=velocity_controller
     @property
-    def q(self) -> list[float]:
+    def q(self) -> List[float]:
         "Return the current joint configuration, a 7-element list."
         return self.move_group.get_current_joint_values()
     @property
@@ -379,7 +378,7 @@ class TiagoArm():
             if ctrl.name in self.all_arm_joint_controllers and ctrl.state=="running":
                 return ctrl.name
         return None
-    def plan_cartesian_trajectory(self, trajectory:list[sm.SE3], eef_step:float=0.001, jump_threshold:float=0.0, start_state:RobotState=None) -> tuple[RobotTrajectory, float]:
+    def plan_cartesian_trajectory(self, trajectory:List[sm.SE3], eef_step:float=0.001, jump_threshold:float=0.0, start_state:RobotState=None) -> tuple[RobotTrajectory, float]:
         '''Plan the given trajectory.
         trajectory: a list of SE3 poses denoting the waypoints.
         eef_step: view move_group documentation (likely the interpolation increment)
@@ -397,7 +396,7 @@ class TiagoArm():
         plan=self.postprocess_plan(plan)
         print(f"[PLAN_CARTESIAN_TRAJECTORY] Planning complete, successfully planned {fraction} of the path.")
         return plan, fraction
-    def plan_to_pose(self, pose: sm.SE3) -> tuple[list[Any], float]:
+    def plan_to_pose(self, pose: sm.SE3) -> tuple[List[Any], float]:
         '''Plan to the given pose.
         POSE is an SE3 pose.'''
         self.move_group.set_pose_target(se3_to_rospose(pose))
@@ -406,7 +405,7 @@ class TiagoArm():
         if not success:
             print(f"[PLAN_TO_POSE] Planning failed. Error code {error}")
         return (plan, success)
-    def plan_to_poses(self, poses:list[sm.SE3], start_state:RobotState=None) -> RobotTrajectory:
+    def plan_to_poses(self, poses:List[sm.SE3], start_state:RobotState=None) -> RobotTrajectory:
         '''Plan to a sequential trajectory of POSES.
         poses: a list of SE3 poses.
         start_state: optional starting RobotState, default is the current state.'''
@@ -425,16 +424,20 @@ class TiagoArm():
             plans=merge_trajectories(plans,plan)
         plans=self.postprocess_plan(plans)
         return plans
-    def postprocess_plan(self, plan:RobotTrajectory)->RobotTrajectory:
-        '''Postprocess plan by running the retiming algorithm to smoothen it.'''
-        if self.retiming_algorithm is None:
+    def postprocess_plan(self, plan:RobotTrajectory, retiming_algorithm=None)->RobotTrajectory:
+        '''Postprocess plan by running the retiming algorithm to smoothen it.
+
+        retiming_algorithm: Leave as None to use the one picked as the class attribute.'''
+        if retiming_algorithm is None:
+            retiming_algorithm=self.retiming_algorithm
+        if retiming_algorithm is None:
             return plan
         ref_state=self.robot.get_current_state()
         retimed_plan=self.move_group.retime_trajectory(ref_state,
                                                        plan,
                                                        velocity_scaling_factor=1.0,
                                                        acceleration_scaling_factor=1.0,
-                                                       algorithm=self.retiming_algorithm)
+                                                       algorithm=retiming_algorithm)
         return retimed_plan
     def execute_plan(self, plan:RobotTrajectory):
         '''Execute plan.'''
@@ -463,7 +466,7 @@ class TiagoArm():
     def velocity_stop(self):
         "Command the arm joints to have zero velocity."
         self.velocity_cmd([0]*7)
-    def RRMC(self, poses:list[sm.SE3]):
+    def RRMC(self, poses:List[sm.SE3], keypoints=None, keypoint_threshold=None, interp_threshold=None):
         """Use resolved-rate motion control (velocity control) to take the end effector through the given poses.
         Returns endeff poses recorded during movement (wrt planning frame).
 
@@ -479,7 +482,6 @@ class TiagoArm():
         for waypoint in poses:
             arrived=False
             segment_recording=[] # to record poses for the current segment
-            print("next point:")
             print(waypoint)
             self.velocity_controller.reset()
             while not arrived and not self.stop:
