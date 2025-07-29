@@ -276,10 +276,14 @@ class TiagoHead():
         
         # Camera intrinsics
         if caminfo:
-            self._cam_info_sub = rospy.Subscriber("/xtion/depth/camera_info", CameraInfo,
+            self._cam_info_sub = rospy.Subscriber("/xtion/depth_registered/camera_info", CameraInfo,
                                                   self._cam_info_callback, queue_size=10)
         self.cam_raw_intrinsic:Union[ArrayLike,None] = None
         "Camera intrinsic matrix."
+        self.cam_raw_distortion_model:Union[str,None] = None
+        "Camera distortion model. See CameraInfo ROSmsg for details."
+        self.cam_raw_distortion:Union[ArrayLike,None] = None
+        "Camera distortion parameters. See CameraInfo ROSmsg for details."
         
         ## Actuators
         if motor:
@@ -308,7 +312,9 @@ class TiagoHead():
     def _motor_callback(self,data):
         self.motor = data.actual.positions
     def _cam_info_callback(self, data):
-        self.cam_raw_intrinsic=np.array(data.K).reshape((3,3)) 
+        self.cam_raw_intrinsic=np.array(data.K).reshape((3,3))
+        self.cam_raw_distortion_model=data.distortion_model
+        self.cam_raw_distortion=np.array(data.D)
 ################################################################################
 ## ARM
 class TiagoArm():
