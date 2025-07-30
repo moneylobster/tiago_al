@@ -80,7 +80,7 @@ class Tiago():
             "Torso position."
         self.torso_pub = rospy.Publisher("/torso_controller/command", JointTrajectory, queue_size=10)
         self.base_pub = rospy.Publisher("/mobile_base_controller/cmd_vel", Twist, queue_size=10)
-        self.move_base_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
+        self.move_base_client = actionlib.SimpleActionClient("/move_base", MoveBaseAction)
         
         # To play prerecorded motions
         self.play_motion_client=actionlib.SimpleActionClient('play_motion', PlayMotionAction)
@@ -174,7 +174,9 @@ class Tiago():
         """Command Tiago to move to a certain pose using its nav stack.
         Check if done with is_move_done
         """
+        print("Trying to reach move_base_simple...")
         if self.move_base_client.wait_for_server(rospy.Duration(secs=1)):
+            print("move_base_simple reached")
             goal=MoveBaseGoal()
             goal.target_pose.header.frame_id=posestamped.header.frame_id
             goal.target_pose.header.stamp=rospy.Time.now()
@@ -187,6 +189,7 @@ class Tiago():
             goal.target_pose.pose.orientation.z=posestamped.pose.orientation.z
             goal.target_pose.pose.orientation.w=posestamped.pose.orientation.w
             self.move_base_client.send_goal(goal)
+            print("sent move_base goal")
             return True
         else:
             rospy.logerr("[MOVE_TO] Couldn't access move_base server.")
@@ -194,12 +197,28 @@ class Tiago():
 
     def is_move_done(self) -> bool:
         """Returns move_base server state, that is, whether the pose commanded by move_to has been reached."""
-        if self.move_base_client.wait_for_result():
+        if self.move_base_client.wait_for_result(rospy.Duration(secs=1)):
             return self.move_base_client.get_result()
         else:
             rospy.logerr("[IS_MOVE_DONE] Move_base server can't be reached!")
             return False
 
+    def look_at(self, target:sm.SE3,
+                threshold:float=0.15,
+                base_kp:float=0.3):
+        """Rotate to face target.
+        TARGET: SE3 wrt "map" frame.
+        THRESHOLD: when to stop in rads"""
+        def angerr(target):
+            B_T_M=self.get_transform("base_footprint", "map")
+            M_T_T=target
+            B_T_T=B_T_M @ M_T_T
+            vec2d=B_T_T.t[:2]
+            angerr=np.arctan2(vec2d[1], vec2d[0])
+            return angerr
+        while abs((theta:=angerr(target)))>threshold and not rospy.is_shutdown():
+            self.move(rz=base_kp*theta)
+        
     def _stats_callback(self, data):
         names=[
             "publish_async_attempts", "publish_async_failures", "publish_buffer_full_errors", "last_async_pub_duration",
