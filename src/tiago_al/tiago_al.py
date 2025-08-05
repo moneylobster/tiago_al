@@ -142,18 +142,18 @@ class Tiago():
             raise NotImplementedError(f"Unsupported language {language}")
         subprocess.run(cmd)
 
-    def move_torso(self, goal: float):
+    def move_torso(self, goal: float, duration:rospy.Duration=rospy.Duration(1)):
         "Move torso to specified point."
         trajpt=JointTrajectoryPoint()
         trajpt.positions=[goal]
-        trajpt.time_from_start=rospy.Duration(1)
+        trajpt.time_from_start=duration
         torso_msg=JointTrajectory()
         torso_msg.joint_names=[
             "torso_lift_joint"
         ]
         torso_msg.points=[trajpt]
         self.torso_pub.publish(torso_msg)
-        rospy.sleep(1)
+        rospy.sleep(duration)
 
     def move(self, x:float=0, y:float=0, z:float=0, rx:float=0, ry:float=0, rz:float=0):
         """Move Tiago's base with the specified velocity.
@@ -320,7 +320,20 @@ class TiagoHead():
         else:
             rospy.logerr("[TIAGO_HEAD] Couldn't access pal_head_manager, not disabling it.")
         
-        
+    def move(self, pan:float, tilt:float, duration:rospy.Duration=rospy.Duration(1)):
+        "Rotate head to specified values."
+        trajpt=JointTrajectoryPoint()
+        trajpt.positions=[pan, tilt]
+        trajpt.time_from_start=duration
+        motor_msg=JointTrajectory()
+        motor_msg.joint_names=[
+            "head_1_joint",
+            "head_2_joint"
+        ]
+        motor_msg.points=[trajpt]
+        self._motor_pub.publish(motor_msg)
+        rospy.sleep(duration)
+                
     def _rgb_callback(self, data):
         self.rgb = self._bridge.imgmsg_to_cv2(data)
     def _depth_callback(self, data):
