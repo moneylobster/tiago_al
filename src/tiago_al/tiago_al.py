@@ -276,10 +276,10 @@ class TiagoHead():
         # RGBD Camera
         self._bridge = CvBridge()
         if rgb:
-            self._rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
+            self._rgb_sub = rospy.Subscriber("/xtion/rgb/image_rect", Image,
                                              self._rgb_callback, queue_size=10)
         if depth:
-            self._depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
+            self._depth_sub = rospy.Subscriber("/xtion/depth/image_rect", Image,
                                                self._depth_callback, queue_size=10)
         if pointcloud:
             self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
