@@ -5,7 +5,7 @@ to write stuff in python without worrying about the ROS parts too much'''
 import tiago_al.velocity_controllers as vc
 
 import subprocess
-from typing import Any, Union, List, Dict, Tuple
+from typing import Any, Union, List, Dict, Tuple, Literal
 import numpy as np
 from numpy.typing import ArrayLike
 import spatialmath as sm
@@ -264,8 +264,8 @@ class Tiago():
 class TiagoHead():
     "Functions relating to Tiago's head. Cameras, motors etc."
     def __init__(self,
-                 rgb:bool=True,
-                 depth:bool=True,
+                 rgb:Literal["raw","rect",None]="raw",
+                 depth:Literal["raw","rect",None]="raw",
                  pointcloud:bool=True,
                  caminfo:bool=True,
                  motor:bool=True):
@@ -275,11 +275,17 @@ class TiagoHead():
         
         # RGBD Camera
         self._bridge = CvBridge()
-        if rgb:
+        if rgb=="raw":
             self._rgb_sub = rospy.Subscriber("/xtion/rgb/image_raw", Image,
                                              self._rgb_callback, queue_size=10)
-        if depth:
+        elif rgb=="rect":
+            self._rgb_sub = rospy.Subscriber("/xtion/rgb/image_rect_color", Image,
+                                             self._rgb_callback, queue_size=10)
+        if depth=="raw":
             self._depth_sub = rospy.Subscriber("/xtion/depth/image_raw", Image,
+                                               self._depth_callback, queue_size=10)
+        elif depth=="rect":
+            self._depth_sub = rospy.Subscriber("/xtion/depth_registered/hw_registered/image_rect_raw", Image,
                                                self._depth_callback, queue_size=10)
         if pointcloud:
             self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
@@ -295,14 +301,24 @@ class TiagoHead():
         
         # Camera intrinsics
         if caminfo:
-            self._cam_info_sub = rospy.Subscriber("/xtion/depth_registered/camera_info", CameraInfo,
-                                                  self._cam_info_callback, queue_size=10)
-        self.cam_raw_intrinsic:Union[ArrayLike,None] = None
-        "Camera intrinsic matrix."
-        self.cam_raw_distortion_model:Union[str,None] = None
-        "Camera distortion model. See CameraInfo ROSmsg for details."
-        self.cam_raw_distortion:Union[ArrayLike,None] = None
-        "Camera distortion parameters. See CameraInfo ROSmsg for details."
+            self._rgb_info_sub = rospy.Subscriber("/xtion/rgb/camera_info", CameraInfo,
+                                                  self._rgb_info_callback, queue_size=10)
+            
+            subtopic_name="depth" if depth=="raw" else "depth_registered"
+            self._depth_info_sub = rospy.Subscriber(f"/xtion/{subtopic_name}/camera_info", CameraInfo,
+                                                    self._depth_info_callback, queue_size=10)
+        self.rgb_raw_intrinsic:Union[ArrayLike,None] = None
+        "RGB camera intrinsic matrix."
+        self.rgb_raw_distortion_model:Union[str,None] = None
+        "RGB camera distortion model. See CameraInfo ROSmsg for details."
+        self.rgb_raw_distortion:Union[ArrayLike,None] = None
+        "RGB camera distortion parameters. See CameraInfo ROSmsg for details."
+        self.depth_intrinsic:Union[ArrayLike,None] = None
+        "DEPTH camera intrinsic matrix."
+        self.depth_distortion_model:Union[str,None] = None
+        "DEPTH camera distortion model. See CameraInfo ROSmsg for details."
+        self.depth_distortion:Union[ArrayLike,None] = None
+        "DEPTH camera distortion parameters. See CameraInfo ROSmsg for details."
         
         ## Actuators
         if motor:
@@ -343,10 +359,14 @@ class TiagoHead():
         self.pointcloud=read_points(data)
     def _motor_callback(self,data):
         self.motor = data.actual.positions
-    def _cam_info_callback(self, data):
-        self.cam_raw_intrinsic=np.array(data.K).reshape((3,3))
-        self.cam_raw_distortion_model=data.distortion_model
-        self.cam_raw_distortion=np.array(data.D)
+    def _rgb_info_callback(self, data):
+        self.rgb_raw_intrinsic=np.array(data.K).reshape((3,3))
+        self.rgb_raw_distortion_model=data.distortion_model
+        self.rgb_raw_distortion=np.array(data.D)
+    def _depth_info_callback(self, data):
+        self.depth_intrinsic=np.array(data.K).reshape((3,3))
+        self.depth_distortion_model=data.distortion_model
+        self.depth_distortion=np.array(data.D)
 ################################################################################
 ## ARM
 class TiagoArm():
