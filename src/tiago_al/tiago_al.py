@@ -246,10 +246,10 @@ class Tiago():
         self.laser=[angles, data.ranges[:len(angles)]]
     @property
     def laser_cartesian(self)->Union[ArrayLike, None]:
-        "Results of the planar laser scan as an array of 2D points according to base frame (+x forward, +y left)."
+        "Results of the planar laser scan as an array of 2D points according to laser frame (+x forward, +y left)."
         if self.laser is not None:
             cossin=np.array([np.cos(self.laser[0]), np.sin(self.laser[0])])
-            return (cossin*self.laser[1][len(self.laser[0,:])]).T
+            return (cossin*self.laser[1][:len(self.laser[0])]).T
         else:
             return None
     def quit(self):
