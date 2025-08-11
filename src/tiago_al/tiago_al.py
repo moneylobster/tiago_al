@@ -68,7 +68,7 @@ class Tiago():
         if laser:
             self._laser_sub=rospy.Subscriber("/scan", LaserScan,
                                              self._laser_callback, queue_size=10)
-            self.laser:Union[List[Any], None] = None
+            self.laser = None
             "Results of planar laser scan as [angle, distance]. Use laser_cartesian to access the points in a cartesian frame."
             self.laser_frame:str = "base_laser_link"
             "Reference frame for the laser scanner."
