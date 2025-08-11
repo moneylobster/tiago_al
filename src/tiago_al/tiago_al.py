@@ -243,7 +243,7 @@ class Tiago():
         self.torso = data.actual.positions[0]
     def _laser_callback(self, data):
         angles=np.arange(data.angle_min, data.angle_max, data.angle_increment)
-        self.laser=[angles, data.ranges[:len(angles)]]
+        self.laser=np.array([angles, data.ranges[:len(angles)]])
     def slice_laser(self, from_angle, to_angle):
         """Get laser readouts in the specified angle range.
         Angles are both inclusive.
@@ -252,8 +252,8 @@ class Tiago():
         assert from_angle>=self.laser[0,0], "from_angle smaller than laser range."
         assert to_angle<=self.laser[-1,0], "to_angle larger than laser range."
         assert from_angle<to_angle, "from_angle should be smaller than to_angle."
-        first_idx=np.searchsorted(self.laser, from_angle, side="left")
-        second_idx=np.searchsorted(self.laser, to_angle, side="right")
+        first_idx=np.searchsorted(self.laser[:,0], from_angle, side="left")
+        second_idx=np.searchsorted(self.laser[:,0], to_angle, side="right")
         return self.laser[first_idx:second_idx]
     def slice_laser_cartesian(self, from_angle, to_angle):
         """Get laser readouts in the specified angle range and convert
@@ -261,8 +261,8 @@ class Tiago():
         Angles are both inclusive.
         from_angle should be smaller than to_angle."""
         laser=self.slice_laser(from_angle, to_angle)
-        cossin=np.array([np.cos(laser[0]), np.sin(laser[0])])
-        return (cossin*laser[1][:len(laser[0])]).T
+        cossin=np.array([np.cos(laser[:,0]), np.sin(laser[:,0])])
+        return (cossin*laser[:,1][:len(laser[:,0])]).T
     @property
     def laser_cartesian(self)->Union[ArrayLike, None]:
         "Results of the planar laser scan as an array of 2D points according to laser frame (+x forward, +y left)."
