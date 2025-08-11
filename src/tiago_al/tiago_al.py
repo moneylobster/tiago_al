@@ -249,9 +249,9 @@ class Tiago():
         Angles are both inclusive.
         from_angle should be smaller than to_angle.
         """
-        assert from_angle>=self.laser[0,0], "from_angle smaller than laser range."
-        assert to_angle<=self.laser[-1,0], "to_angle larger than laser range."
-        assert from_angle<to_angle, "from_angle should be smaller than to_angle."
+        assert from_angle>=self.laser[0,0], f"from_angle ({from_angle} rad) is smaller than leftmost limit ({self.laser[0,0]} rad)"
+        assert to_angle<=self.laser[-1,0], f"to_angle ({to_angle} rad) larger than rightmost limit ({self.laser[-1,0]} rad)"
+        assert from_angle<to_angle, f"from_angle ({from_angle} rad) should be smaller than to_angle ({to_angle} rad)."
         first_idx=np.searchsorted(self.laser[:,0], from_angle, side="left")
         second_idx=np.searchsorted(self.laser[:,0], to_angle, side="right")
         return self.laser[first_idx:second_idx]
