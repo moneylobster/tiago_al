@@ -309,7 +309,7 @@ class TiagoHead():
             self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
                                                   self._pointcloud_callback, queue_size=10)
         elif pointcloud=="rect":
-            self._pointcloud_sub=rospy.Subscriber("/point_republish", PointCloud2,
+            self._pointcloud_sub=rospy.Subscriber("/points_republish", PointCloud2,
                                                   self._pointcloud_callback, queue_size=10)
         self.rgb = None
         "Latest fetched RGB image. Size should be 640x480."
