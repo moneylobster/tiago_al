@@ -284,7 +284,7 @@ class TiagoHead():
     def __init__(self,
                  rgb:Literal["raw","rect",None]="raw",
                  depth:Literal["raw","rect",None]="raw",
-                 pointcloud:bool=True,
+                 pointcloud:Literal["raw","rect",None]="raw",
                  caminfo:bool=True,
                  motor:bool=True):
         ## Cameras
@@ -305,8 +305,11 @@ class TiagoHead():
         elif depth=="rect":
             self._depth_sub = rospy.Subscriber("/xtion/depth_registered/hw_registered/image_rect_raw", Image,
                                                self._depth_callback, queue_size=10)
-        if pointcloud:
+        if pointcloud=="raw":
             self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
+                                                  self._pointcloud_callback, queue_size=10)
+        elif pointcloud=="rect":
+            self._pointcloud_sub=rospy.Subscriber("/point_republish", PointCloud2,
                                                   self._pointcloud_callback, queue_size=10)
         self.rgb = None
         "Latest fetched RGB image. Size should be 640x480."
