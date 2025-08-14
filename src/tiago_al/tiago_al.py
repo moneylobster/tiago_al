@@ -309,6 +309,11 @@ class TiagoHead():
             self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points/filtered_points", PointCloud2,
                                                   self._pointcloud_callback, queue_size=10)
         elif pointcloud=="rect":
+            # NB. This one is a bit me-specific, launches the
+            # depth-camera rectifier that I wrote and then subscribes
+            # to its output.
+            subprocess.Popen(["roslaunch", "depth_republisher", "depth_republisher.launch"],
+                             stdout=subprocess.DEVNULL) #launch republisher
             self._pointcloud_sub=rospy.Subscriber("/points_republish", PointCloud2,
                                                   self._pointcloud_callback, queue_size=10)
         self.rgb = None
