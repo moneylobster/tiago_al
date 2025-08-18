@@ -164,7 +164,9 @@ class Tiago():
         "Results of the planar laser scan as an array of 2D points according to laser frame (+x forward, +y left)."
         if self.laser is not None:
             cossin=np.array([np.cos(self.laser[0]), np.sin(self.laser[0])])
-            return (cossin*self.laser[1][:len(self.laser[0])]).T
+            print(f"{cossin.shape=}")
+            print(len(self.laser[0])-1)
+            return (cossin*self.laser[1][:len(self.laser[0])-1]).T
         else:
             return None
     def quit(self):
