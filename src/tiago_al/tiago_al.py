@@ -388,7 +388,7 @@ class TiagoHead():
         self.depth = self._bridge.imgmsg_to_cv2(data)
     def _pointcloud_callback(self, data):
         self.pointcloud_frame=data.header.frame_id
-        self.pointcloud=read_points(data)
+        self.pointcloud=np.array(list(read_points(data)))
     def _motor_callback(self,data):
         self.motor = data.actual.positions
     def _rgb_info_callback(self, data):
