@@ -7,10 +7,12 @@ import tiago_al.velocity_controllers as vc
 import subprocess
 from typing import Any, Union, List, Dict, Tuple, Literal
 import numpy as np
+from numpy.lib import recfunctions as rfn
 from numpy.typing import ArrayLike
 import spatialmath as sm
 
 # ros stuff
+import ros_numpy
 import rospy
 import actionlib
 import moveit_commander
@@ -388,7 +390,8 @@ class TiagoHead():
         self.depth = self._bridge.imgmsg_to_cv2(data)
     def _pointcloud_callback(self, data):
         self.pointcloud_frame=data.header.frame_id
-        self.pointcloud=np.array(list(read_points(data)))
+        # self.pointcloud=np.array(list(read_points(data)))
+        self.pointcloud=rfn.structured_to_unstructured(ros_numpy.numpify(data))
     def _motor_callback(self,data):
         self.motor = data.actual.positions
     def _rgb_info_callback(self, data):
