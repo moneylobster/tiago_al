@@ -322,13 +322,13 @@ class TiagoHead():
                              stdout=subprocess.DEVNULL) #launch republisher
             self._pointcloud_sub=rospy.Subscriber("/points_republish", PointCloud2,
                                                   self._pointcloud_callback, queue_size=10)
-        self.rgb = None
+        self.rgb:Union[None,ArrayLike] = None
         "Latest fetched RGB image. Size should be 640x480."
-        self.depth = None
+        self.depth:Union[None, ArrayLike] = None
         "Latest fetched depth image. Size should be 640x480."
-        self.pointcloud=None
+        self.pointcloud:Union[None, ArrayLike]=None
         "Pointcloud obtained from the depth image."
-        self.pointcloud_frame=None
+        self.pointcloud_frame:str=None
         "The name of the frame that the pointcloud is relative to."
         
         # Camera intrinsics
