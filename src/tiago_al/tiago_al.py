@@ -270,6 +270,12 @@ class Tiago():
             return self.slice_laser_cartesian(self.laser[0,0], self.laser[0,-1])
         else:
             return None
+
+    @property
+    def base_pose_wrt_map(self)->sm.SE3:
+        "Base_footprint wrt. map frame: M_T_B"
+        return self.get_transform("map", "base_footprint")
+    
     def quit(self):
         "Safely stop/shutdown Tiago. Also stops movements if velocity controller is active."
         if self.arm.controller=="arm_forward_velocity_controller":
