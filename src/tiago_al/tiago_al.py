@@ -320,7 +320,7 @@ class TiagoHead():
             # to its output.
             subprocess.Popen(["roslaunch", "depth_republisher", "depth_republisher.launch"],
                              stdout=subprocess.DEVNULL) #launch republisher
-            self._pointcloud_sub=rospy.Subscriber("/points_republish", PointCloud2,
+            self._pointcloud_sub=rospy.Subscriber("/throttle_filtering_points_republish/filtered_points", PointCloud2,
                                                   self._pointcloud_callback, queue_size=10)
         self.rgb:Union[None,ArrayLike] = None
         "Latest fetched RGB image. Size should be 640x480."
