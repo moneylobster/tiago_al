@@ -526,6 +526,20 @@ class TiagoArm():
     def execute_plan(self, plan:RobotTrajectory):
         '''Execute plan.'''
         self.move_group.execute(plan, wait=True)
+        # occasionally the movement execution can raise an error, but
+        # the arm moves without problems. In these cases this function
+        # terminates without waiting for the movement to
+        # end. Therefore we check that the movement has finished
+        # manually.
+        
+        thresh=0.1
+        # get final q in plan
+        final_q=np.array(plan.joint_trajectory.points[-1].positions)
+        # wait until current q matches final q of plan (to a
+        # threshold)
+        while np.linalg.norm(np.abs(self.q-final_q))>=thresh:
+            rospy.sleep(0.1)
+            
     def switch_controller(self, to: str):
         """Switch to a controller.
         to: controller to switch to. Should be one of those listed in self.all_arm_joint_controllers."""
