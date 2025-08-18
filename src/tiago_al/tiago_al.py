@@ -45,7 +45,7 @@ class Tiago():
                  laser:bool=True,
                  torso:bool=True):
         # start a ros node
-        rospy.init_node("tiago_al", anonymous=True)
+        rospy.init_node("tiago_al", anonymous=True, disable_signals=True)
         ## Submodules
         # classes relating exclusively to individual components
         self.head:TiagoHead=TiagoHead()
